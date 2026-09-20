@@ -23,7 +23,7 @@ app.innerHTML = `
   <div class="overlay">
     <div class="brand">
       <strong>Animachina</strong>
-      <span>adaptive dark ride runtime · v0.2</span>
+      <span>adaptive dark ride runtime · v0.3</span>
     </div>
 
     <div class="personality-picker">

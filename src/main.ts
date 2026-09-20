@@ -3,14 +3,14 @@ import "./styles.css";
 
 import type {
   ActorDefinition,
-  Affordance,
-  PerformanceEvent,
-  Personality,
-  PolicyDecision,
+  ActorPerformanceEvent,
+  PersonalityProfile,
+  VehicleDecision,
+  VehicleOpportunity,
 } from "./engine/model";
 import { LocalPolicy } from "./engine/policy";
 import { SceneRuntime } from "./engine/runtime";
-import { plazaScene } from "./demo/plaza";
+import { demoPersonalities, plazaScene } from "./demo/plaza";
 
 const app = document.querySelector<HTMLDivElement>("#app");
 
@@ -22,29 +22,36 @@ app.innerHTML = `
   <div class="overlay">
     <div class="brand">
       <strong>Animachina</strong>
-      <span>adaptive dark ride runtime · v0</span>
+      <span>adaptive dark ride runtime · v0.1</span>
     </div>
 
     <div class="personality-picker">
-      <button data-personality="glamorous" class="active">💎 Glamorous</button>
-      <button data-personality="shy">🫣 Shy</button>
-      <button data-personality="chaotic">😈 Chaotic</button>
+      ${demoPersonalities
+        .map(
+          (profile, index) =>
+            `<button data-personality="${profile.id}" class="${index === 0 ? "active" : ""}">${profile.label}</button>`,
+        )
+        .join("")}
     </div>
 
     <div class="debug">
       <div><b>Beat</b> <span data-debug="beat">arrival</span></div>
-      <div><b>Decision</b> <span data-debug="decision">waiting…</span></div>
-      <div><b>Performance</b> <span data-debug="performance">—</span></div>
+      <div><b>Profile</b> <span data-debug="profile">—</span></div>
+      <div><b>Vehicle</b> <span data-debug="decision">waiting…</span></div>
+      <div><b>Actor</b> <span data-debug="performance">—</span></div>
     </div>
 
     <div class="legend">
-      same scene · same actors · different performance<br />
-      local policy today · Jev plugs into DecisionPolicy next
+      content declares capabilities · policy chooses behavior<br />
+      local fallback is random + personality-blind · Jev comes next
     </div>
   </div>
 `;
 
 const debugBeat = document.querySelector<HTMLElement>('[data-debug="beat"]')!;
+const debugProfile = document.querySelector<HTMLElement>(
+  '[data-debug="profile"]',
+)!;
 const debugDecision = document.querySelector<HTMLElement>(
   '[data-debug="decision"]',
 )!;
@@ -109,8 +116,16 @@ path.position.y = 0.015;
 path.receiveShadow = true;
 scene.add(path);
 
+type ActorFx = {
+  capabilityId: string;
+  intensity: number;
+  duration: number;
+  delay: number;
+  elapsed: number;
+};
+
 const actorObjects = new Map<string, THREE.Group>();
-const actorPulse = new Map<string, number>();
+const actorFx = new Map<string, ActorFx>();
 
 function makeActor(actor: ActorDefinition) {
   const group = new THREE.Group();
@@ -134,7 +149,6 @@ function makeActor(actor: ActorDefinition) {
       }),
     );
     water.position.y = 0.13;
-    water.userData.animated = "water";
     group.add(water);
   }
 
@@ -150,7 +164,6 @@ function makeActor(actor: ActorDefinition) {
       new THREE.MeshStandardMaterial({ color: 0xd0c8ca, roughness: 0.8 }),
     );
     body.position.y = 0.55;
-    body.userData.animated = "statue";
     body.castShadow = true;
     group.add(body);
   }
@@ -168,9 +181,12 @@ function makeActor(actor: ActorDefinition) {
       );
       const angle = (i / 9) * Math.PI * 2;
       const radius = 0.25 + (i % 4) * 0.12;
-      flower.position.set(Math.cos(angle) * radius, 0.04, Math.sin(angle) * radius);
+      flower.position.set(
+        Math.cos(angle) * radius,
+        0.04,
+        Math.sin(angle) * radius,
+      );
       flower.rotation.x = -Math.PI / 2;
-      flower.userData.animated = "flower";
       group.add(flower);
     }
   }
@@ -185,7 +201,6 @@ function makeActor(actor: ActorDefinition) {
     );
     body.scale.set(1.15, 0.65, 0.9);
     body.castShadow = true;
-    body.userData.animated = "creature";
     group.add(body);
 
     for (const side of [-1, 1]) {
@@ -193,13 +208,12 @@ function makeActor(actor: ActorDefinition) {
         new THREE.SphereGeometry(0.055, 16, 12),
         new THREE.MeshBasicMaterial({ color: 0x211b2a }),
       );
-      eye.position.set(side * 0.13, 0.10, -0.31);
+      eye.position.set(side * 0.13, 0.1, -0.31);
       group.add(eye);
     }
   }
 
   actorObjects.set(actor.id, group);
-  actorPulse.set(actor.id, 0);
   scene.add(group);
 }
 
@@ -249,23 +263,37 @@ vehicle.add(nose);
 vehicle.position.y = 0.18;
 scene.add(vehicle);
 
-function triggerPerformance(event: PerformanceEvent) {
-  if (!event.actor) {
-    debugPerformance.textContent = "scene resolves → exit";
-    return;
-  }
+function describeVehicleDecision(
+  decision: VehicleDecision,
+  opportunity: VehicleOpportunity,
+) {
+  const p = decision.performance;
+  return (
+    `${opportunity.action}${opportunity.actorId ? `:${opportunity.actorId}` : ""}` +
+    ` · speed ${p.speed.toFixed(1)} · curve ${p.curvature.toFixed(2)}` +
+    ` · wait ${p.hesitation.toFixed(1)}s · face ${p.facing}`
+  );
+}
 
-  actorPulse.set(event.actor.id, 1);
+function triggerActorPerformance(event: ActorPerformanceEvent) {
+  actorFx.set(event.actor.id, {
+    capabilityId: event.decision.capabilityId,
+    intensity: event.decision.intensity,
+    duration: event.decision.duration,
+    delay: event.decision.delay,
+    elapsed: 0,
+  });
+
   debugPerformance.textContent =
-    `${event.actor.kind} performs · ${event.style}`;
+    `${event.actor.id} → ${event.decision.capabilityId}` +
+    ` · intensity ${event.decision.intensity.toFixed(2)}`;
 }
 
 const runtime = new SceneRuntime(plazaScene, new LocalPolicy(), {
-  onDecision(decision: PolicyDecision, affordance: Affordance) {
-    debugDecision.textContent =
-      `${affordance.label} · ${decision.style} · ${decision.source}`;
+  onVehicleDecision(decision, opportunity) {
+    debugDecision.textContent = describeVehicleDecision(decision, opportunity);
   },
-  onPerformance: triggerPerformance,
+  onActorPerformance: triggerActorPerformance,
   onBeatChanged(beat) {
     debugBeat.textContent = beat.id;
   },
@@ -274,26 +302,105 @@ const runtime = new SceneRuntime(plazaScene, new LocalPolicy(), {
   },
 });
 
-let personality: Personality = "glamorous";
+let personality: PersonalityProfile = demoPersonalities[0];
 runtime.reset(personality);
+debugProfile.textContent = personality.description;
 
 document
   .querySelectorAll<HTMLButtonElement>("[data-personality]")
   .forEach((button) => {
     button.addEventListener("click", () => {
-      personality = button.dataset.personality as Personality;
+      const selected = demoPersonalities.find(
+        (profile) => profile.id === button.dataset.personality,
+      );
+
+      if (!selected) return;
+
+      personality = selected;
 
       document
         .querySelectorAll<HTMLButtonElement>("[data-personality]")
         .forEach((item) => item.classList.toggle("active", item === button));
 
+      debugProfile.textContent = personality.description;
       debugDecision.textContent = "waiting…";
       debugPerformance.textContent = "—";
+      actorFx.clear();
       runtime.reset(personality);
     });
   });
 
 const clock = new THREE.Clock();
+
+function applyActorFx(actor: ActorDefinition, dt: number, t: number) {
+  const group = actorObjects.get(actor.id);
+  if (!group) return;
+
+  group.position.set(actor.position.x, 0.08, actor.position.z);
+  group.rotation.set(0, 0, 0);
+  group.scale.setScalar(1);
+
+  const fx = actorFx.get(actor.id);
+  if (!fx) return;
+
+  fx.elapsed += dt;
+
+  if (fx.elapsed < fx.delay) return;
+
+  const localTime = fx.elapsed - fx.delay;
+  const progress = Math.min(1, localTime / Math.max(0.01, fx.duration));
+  const envelope = Math.sin(progress * Math.PI);
+  const amount = envelope * fx.intensity;
+
+  switch (fx.capabilityId) {
+    case "pulse":
+      group.scale.setScalar(1 + amount * 0.28);
+      break;
+    case "burst":
+      group.scale.setScalar(1 + amount * 0.62);
+      group.rotation.y = Math.sin(t * 8) * amount * 0.16;
+      break;
+    case "dim":
+      group.scale.setScalar(1 - amount * 0.22);
+      break;
+    case "turn-toward":
+      group.rotation.y = amount * 0.9;
+      break;
+    case "turn-away":
+      group.rotation.y = -amount * 1.25;
+      break;
+    case "pose":
+      group.rotation.y = amount * Math.sin(t * 5) * 1.35;
+      group.scale.set(1 + amount * 0.12, 1, 1 - amount * 0.08);
+      break;
+    case "bloom":
+      group.scale.setScalar(1 + amount * 0.55);
+      break;
+    case "fold":
+      group.scale.setScalar(1 - amount * 0.38);
+      break;
+    case "ripple":
+      group.rotation.y = Math.sin(t * 10) * amount * 0.22;
+      group.scale.set(1 + amount * 0.18, 1, 1 - amount * 0.08);
+      break;
+    case "hop":
+      group.position.y = 0.08 + Math.abs(Math.sin(t * 8)) * amount * 0.8;
+      break;
+    case "hide":
+      group.scale.setScalar(1 - amount * 0.72);
+      break;
+    case "circle": {
+      const radius = amount * 0.45;
+      group.position.x += Math.cos(t * 5) * radius;
+      group.position.z += Math.sin(t * 5) * radius;
+      break;
+    }
+  }
+
+  if (progress >= 1) {
+    actorFx.delete(actor.id);
+  }
+}
 
 function animate() {
   requestAnimationFrame(animate);
@@ -308,46 +415,11 @@ function animate() {
   vehicle.position.z = state.position.z;
   vehicle.rotation.y = state.heading;
 
-  const material = vehicleBody.material as THREE.MeshStandardMaterial;
-  material.color.setHex(
-    state.personality === "glamorous"
-      ? 0xf4cc65
-      : state.personality === "shy"
-        ? 0x8fbed6
-        : 0xe27e86,
-  );
-
   for (const actor of plazaScene.actors) {
-    const group = actorObjects.get(actor.id)!;
-    const pulse = Math.max(0, (actorPulse.get(actor.id) ?? 0) - dt * 0.65);
-    actorPulse.set(actor.id, pulse);
-
-    const animated = group.children.filter((child) => child.userData.animated);
-
-    for (const child of animated) {
-      const kind = child.userData.animated;
-
-      if (kind === "water") {
-        child.scale.setScalar(1 + pulse * 0.42 + Math.sin(t * 3) * 0.025);
-      }
-
-      if (kind === "statue") {
-        child.rotation.y = pulse * Math.sin(t * 4) * 0.9;
-      }
-
-      if (kind === "flower") {
-        const s = 1 + pulse * 0.75;
-        child.scale.setScalar(s);
-      }
-
-      if (kind === "creature") {
-        child.position.y = pulse * Math.abs(Math.sin(t * 7)) * 0.55;
-        child.rotation.y = pulse * Math.sin(t * 5) * 0.65;
-      }
-    }
+    applyActorFx(actor, dt, t);
   }
 
-  exitMarker.material.opacity = 0.28 + Math.sin(t * 2.2) * 0.10;
+  exitMarker.material.opacity = 0.28 + Math.sin(t * 2.2) * 0.1;
   exitMarker.rotation.z += dt * 0.18;
 
   renderer.render(scene, camera);

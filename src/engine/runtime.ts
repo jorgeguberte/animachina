@@ -47,6 +47,7 @@ export class SceneRuntime {
   private activeOpportunity?: VehicleOpportunity;
   private activeDecision?: VehicleDecision;
   private pendingVehicleDecision = false;
+  private generation = 0;
   private hesitationRemaining = 0;
   private dwellRemaining = 0;
 
@@ -84,6 +85,7 @@ export class SceneRuntime {
   }
 
   reset(personality: PersonalityProfile) {
+    this.generation += 1;
     this.world.elapsed = 0;
     this.world.beatId = this.scene.firstBeatId;
     this.world.interactionsInBeat = 0;
@@ -218,6 +220,7 @@ export class SceneRuntime {
     if (this.pendingVehicleDecision || this.world.completed) return;
 
     this.pendingVehicleDecision = true;
+    const generation = this.generation;
     const beat = this.currentBeat();
     const opportunities = this.getAvailableOpportunities();
 
@@ -229,6 +232,8 @@ export class SceneRuntime {
         personality: this.world.vehicle.personality,
         opportunities,
       });
+
+      if (generation !== this.generation) return;
 
       const selected = opportunities.find(
         (opportunity) => opportunity.id === decision.opportunityId,
@@ -252,7 +257,9 @@ export class SceneRuntime {
 
       this.hooks.onVehicleDecision?.(decision, selected);
     } finally {
-      this.pendingVehicleDecision = false;
+      if (generation === this.generation) {
+        this.pendingVehicleDecision = false;
+      }
     }
   }
 
@@ -360,6 +367,7 @@ export class SceneRuntime {
     opportunity: VehicleOpportunity,
     vehicleDecision: VehicleDecision,
   ) {
+    const generation = this.generation;
     const beat = this.currentBeat();
 
     const decision = await this.policy.chooseActor({
@@ -375,7 +383,7 @@ export class SceneRuntime {
       availableCapabilities: actor.capabilities,
     });
 
-    if (!decision) return;
+    if (generation !== this.generation || !decision) return;
 
     if (!actor.capabilities.some((capability) => capability.id === decision.capabilityId)) {
       throw new Error(

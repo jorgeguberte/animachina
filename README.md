@@ -118,27 +118,43 @@ The local policy exists only to exercise:
 
 ## Jev integration
 
-`src/engine/policy.ts` is the seam.
+Jev is now wired through `src/engine/jev-policy.ts`.
 
-The real Jev adapter gets compact semantic state and chooses:
+The browser never sees the TypeSafe API key. During local development, `vite.config.ts` exposes a same-origin `/api/system-one` proxy and forwards requests to TypeSafe from the Node side.
+
+Create `.env.local`:
+
+```bash
+TYPESAFE_API_KEY=your_key_here
+```
+
+The integration deliberately uses **two-stage decisions**.
 
 ### Vehicle
 
-- one currently valid opportunity,
-- speed,
-- curvature,
-- hesitation,
-- dwell,
-- facing.
+**Call 1: what happens?**
+
+Jev receives the personality, creative intent, active beat, current world state, recent events and the dynamically-derived opportunities. A Choice question selects one real opportunity.
+
+**Call 2: how is it performed?**
+
+The chosen opportunity is added to state. Independent Score / Choice questions judge speed, path curvature, curve side, hesitation, dwell and facing.
 
 ### Actor
 
-- one capability the actor actually has,
-- intensity,
-- duration,
-- delay.
+**Call 1: what reaction?**
 
-Jev does not invent geometry or bypass physical capabilities.
+Jev chooses one capability the actor physically owns.
+
+**Call 2: how is it performed?**
+
+With that capability fixed, Jev judges intensity, duration and anticipation delay.
+
+This follows the System One design rule: keep judgments atomic, then compose them in code.
+
+If Jev is unavailable or the key is missing, the demo falls back to `LocalPolicy`. The debug overlay exposes the source, so a `local` decision cannot masquerade as Jev.
+
+Jev still does not invent geometry or bypass physical capabilities.
 
 In short:
 
@@ -163,6 +179,10 @@ npm run dev
 
 ## Status
 
-v0.1: capability-driven runtime, dynamic opportunities, parameterized performance, personality-blind fallback.
+v0.2: capability-driven runtime + real Jev System One policy + server-side API proxy + personality-blind fallback.
 
-Next: connect the real Jev policy and see whether semantic personality begins to emerge **without adding personality-specific engine rules**.
+The experiment now has a falsifiable test:
+
+> Run the same authored scene with different semantic personality descriptions. Distinct behavior should emerge from Jev decisions, **without adding personality-specific engine rules**.
+
+Next: observe several runs, inspect Jev probabilities/confidence, and tune the semantic state/questions only where behavior is unclear.

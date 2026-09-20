@@ -11,7 +11,15 @@ import type {
 import { LocalPolicy } from "./engine/policy";
 import { JevPolicy } from "./engine/jev-policy";
 import { SceneRuntime } from "./engine/runtime";
+
 import { demoPersonalities, plazaScene } from "./demo/plaza";
+import { plazaShow } from "./demo/plaza-show";
+
+import { LocalStagePolicy } from "./show/policy";
+import { JevStagePolicy } from "./show/jev-stage-policy";
+import { StageDirector } from "./show/stage-director";
+import { ThreeShowController } from "./show/three-show";
+import type { StageDecisionEvent } from "./show/model";
 
 const app = document.querySelector<HTMLDivElement>("#app");
 
@@ -23,16 +31,19 @@ app.innerHTML = `
   <div class="overlay">
     <div class="brand">
       <strong>Animachina</strong>
-      <span>adaptive dark ride runtime · v0.3</span>
+      <span>adaptive dark ride runtime · v0.4</span>
     </div>
 
-    <div class="personality-picker">
-      ${demoPersonalities
-        .map(
-          (profile, index) =>
-            `<button data-personality="${profile.id}" class="${index === 0 ? "active" : ""}">${profile.label}</button>`,
-        )
-        .join("")}
+    <div class="top-controls">
+      <div class="personality-picker">
+        ${demoPersonalities
+          .map(
+            (profile, index) =>
+              `<button data-personality="${profile.id}" class="${index === 0 ? "active" : ""}">${profile.label}</button>`,
+          )
+          .join("")}
+      </div>
+      <button class="sound-toggle" data-sound>🔇 Sound off</button>
     </div>
 
     <div class="debug">
@@ -40,11 +51,12 @@ app.innerHTML = `
       <div><b>Profile</b> <span data-debug="profile">—</span></div>
       <div><b>Vehicle</b> <span data-debug="decision">waiting…</span></div>
       <div><b>Actor</b> <span data-debug="performance">—</span></div>
+      <div><b>Stage</b> <span data-debug="stage">waiting…</span></div>
     </div>
 
     <div class="legend">
-      content declares capabilities · policy chooses behavior<br />
-      Jev is the pre-cortex · local random policy is fallback only
+      behavior → actor → stage direction<br />
+      light · sound · scenic machinery
     </div>
   </div>
 `;
@@ -59,6 +71,10 @@ const debugDecision = document.querySelector<HTMLElement>(
 const debugPerformance = document.querySelector<HTMLElement>(
   '[data-debug="performance"]',
 )!;
+const debugStage = document.querySelector<HTMLElement>(
+  '[data-debug="stage"]',
+)!;
+const soundButton = document.querySelector<HTMLButtonElement>("[data-sound]")!;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x17172d);
@@ -86,7 +102,8 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 app.prepend(renderer.domElement);
 
-scene.add(new THREE.HemisphereLight(0xcfd8ff, 0x31254c, 2.4));
+const hemisphere = new THREE.HemisphereLight(0xcfd8ff, 0x31254c, 2.4);
+scene.add(hemisphere);
 
 const key = new THREE.DirectionalLight(0xffefd0, 2.2);
 key.position.set(-5, 10, 6);
@@ -264,11 +281,43 @@ vehicle.add(nose);
 vehicle.position.y = 0.18;
 scene.add(vehicle);
 
+const showController = new ThreeShowController(
+  scene,
+  hemisphere,
+  key,
+  plazaScene.actors,
+  vehicle,
+);
+
+let runtime: SceneRuntime;
+
+const stageDirector = new StageDirector(
+  plazaShow,
+  new JevStagePolicy(new LocalStagePolicy()),
+  {
+    onDecision(event: StageDecisionEvent) {
+      showController.trigger(event);
+
+      const decision = event.decision;
+
+      debugStage.textContent =
+        `${decision.lightCueId} · ${decision.soundCueId} · ${decision.setMotionCueId}` +
+        ` · energy ${decision.energy.toFixed(2)}` +
+        ` · ${decision.source}${decision.source === "jev" ? ` ${decision.confidence.toFixed(2)}` : ""}`;
+
+      runtime.noteEvent(
+        `stage:${decision.lightCueId}:${decision.soundCueId}:${decision.setMotionCueId}:energy=${decision.energy.toFixed(2)}`,
+      );
+    },
+  },
+);
+
 function describeVehicleDecision(
   decision: VehicleDecision,
   opportunity: VehicleOpportunity,
 ) {
   const p = decision.performance;
+
   return (
     `${opportunity.action}${opportunity.actorId ? `:${opportunity.actorId}` : ""}` +
     ` · speed ${p.speed.toFixed(1)} · curve ${p.curvature.toFixed(2)}` +
@@ -290,28 +339,44 @@ function triggerActorPerformance(event: ActorPerformanceEvent) {
     `${event.actor.id} → ${event.decision.capabilityId}` +
     ` · intensity ${event.decision.intensity.toFixed(2)}` +
     ` · ${event.decision.source}${event.decision.source === "jev" ? ` ${event.decision.confidence.toFixed(2)}` : ""}`;
+
+  void stageDirector.direct(plazaScene, runtime.world, event);
 }
 
-const runtime = new SceneRuntime(
+runtime = new SceneRuntime(
   plazaScene,
   new JevPolicy(new LocalPolicy()),
   {
-  onVehicleDecision(decision, opportunity) {
-    debugDecision.textContent = describeVehicleDecision(decision, opportunity);
-  },
-  onActorPerformance: triggerActorPerformance,
-  onBeatChanged(beat) {
-    debugBeat.textContent = beat.id;
-  },
-  onComplete() {
-    debugPerformance.textContent = "scene complete ✓";
-  },
+    onVehicleDecision(decision, opportunity) {
+      debugDecision.textContent = describeVehicleDecision(decision, opportunity);
+    },
+    onActorPerformance: triggerActorPerformance,
+    onBeatChanged(beat) {
+      debugBeat.textContent = beat.id;
+    },
+    onComplete() {
+      debugPerformance.textContent = "scene complete ✓";
+    },
   },
 );
 
 let personality: PersonalityProfile = demoPersonalities[0];
-runtime.reset(personality);
-debugProfile.textContent = personality.description;
+
+function resetRide(profile: PersonalityProfile) {
+  personality = profile;
+
+  debugProfile.textContent = personality.description;
+  debugDecision.textContent = "waiting…";
+  debugPerformance.textContent = "—";
+  debugStage.textContent = "waiting…";
+
+  actorFx.clear();
+  stageDirector.reset();
+  showController.reset();
+  runtime.reset(personality);
+}
+
+resetRide(personality);
 
 document
   .querySelectorAll<HTMLButtonElement>("[data-personality]")
@@ -323,24 +388,26 @@ document
 
       if (!selected) return;
 
-      personality = selected;
-
       document
         .querySelectorAll<HTMLButtonElement>("[data-personality]")
         .forEach((item) => item.classList.toggle("active", item === button));
 
-      debugProfile.textContent = personality.description;
-      debugDecision.textContent = "waiting…";
-      debugPerformance.textContent = "—";
-      actorFx.clear();
-      runtime.reset(personality);
+      resetRide(selected);
     });
   });
+
+soundButton.addEventListener("click", async () => {
+  await showController.unlockAudio();
+
+  soundButton.textContent = "🔊 Sound on";
+  soundButton.classList.add("active");
+});
 
 const clock = new THREE.Clock();
 
 function applyActorFx(actor: ActorDefinition, dt: number, t: number) {
   const group = actorObjects.get(actor.id);
+
   if (!group) return;
 
   group.position.set(actor.position.x, 0.08, actor.position.z);
@@ -348,6 +415,7 @@ function applyActorFx(actor: ActorDefinition, dt: number, t: number) {
   group.scale.setScalar(1);
 
   const fx = actorFx.get(actor.id);
+
   if (!fx) return;
 
   fx.elapsed += dt;
@@ -363,39 +431,50 @@ function applyActorFx(actor: ActorDefinition, dt: number, t: number) {
     case "pulse":
       group.scale.setScalar(1 + amount * 0.28);
       break;
+
     case "burst":
       group.scale.setScalar(1 + amount * 0.62);
       group.rotation.y = Math.sin(t * 8) * amount * 0.16;
       break;
+
     case "dim":
       group.scale.setScalar(1 - amount * 0.22);
       break;
+
     case "turn-toward":
       group.rotation.y = amount * 0.9;
       break;
+
     case "turn-away":
       group.rotation.y = -amount * 1.25;
       break;
+
     case "pose":
       group.rotation.y = amount * Math.sin(t * 5) * 1.35;
       group.scale.set(1 + amount * 0.12, 1, 1 - amount * 0.08);
       break;
+
     case "bloom":
       group.scale.setScalar(1 + amount * 0.55);
       break;
+
     case "fold":
       group.scale.setScalar(1 - amount * 0.38);
       break;
+
     case "ripple":
       group.rotation.y = Math.sin(t * 10) * amount * 0.22;
       group.scale.set(1 + amount * 0.18, 1, 1 - amount * 0.08);
       break;
+
     case "hop":
       group.position.y = 0.08 + Math.abs(Math.sin(t * 8)) * amount * 0.8;
       break;
+
     case "hide":
       group.scale.setScalar(1 - amount * 0.72);
       break;
+
     case "circle": {
       const radius = amount * 0.45;
       group.position.x += Math.cos(t * 5) * radius;
@@ -425,6 +504,8 @@ function animate() {
   for (const actor of plazaScene.actors) {
     applyActorFx(actor, dt, t);
   }
+
+  showController.update(dt, t);
 
   exitMarker.material.opacity = 0.28 + Math.sin(t * 2.2) * 0.1;
   exitMarker.rotation.z += dt * 0.18;

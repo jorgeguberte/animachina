@@ -9,6 +9,7 @@ import type {
   VehicleOpportunity,
 } from "./engine/model";
 import { LocalPolicy } from "./engine/policy";
+import { JevPolicy } from "./engine/jev-policy";
 import { SceneRuntime } from "./engine/runtime";
 import { demoPersonalities, plazaScene } from "./demo/plaza";
 
@@ -22,7 +23,7 @@ app.innerHTML = `
   <div class="overlay">
     <div class="brand">
       <strong>Animachina</strong>
-      <span>adaptive dark ride runtime · v0.1</span>
+      <span>adaptive dark ride runtime · v0.2</span>
     </div>
 
     <div class="personality-picker">
@@ -43,7 +44,7 @@ app.innerHTML = `
 
     <div class="legend">
       content declares capabilities · policy chooses behavior<br />
-      local fallback is random + personality-blind · Jev comes next
+      Jev is the pre-cortex · local random policy is fallback only
     </div>
   </div>
 `;
@@ -271,7 +272,8 @@ function describeVehicleDecision(
   return (
     `${opportunity.action}${opportunity.actorId ? `:${opportunity.actorId}` : ""}` +
     ` · speed ${p.speed.toFixed(1)} · curve ${p.curvature.toFixed(2)}` +
-    ` · wait ${p.hesitation.toFixed(1)}s · face ${p.facing}`
+    ` · wait ${p.hesitation.toFixed(1)}s · face ${p.facing}` +
+    ` · ${decision.source}${decision.source === "jev" ? ` ${decision.confidence.toFixed(2)}` : ""}`
   );
 }
 
@@ -286,10 +288,14 @@ function triggerActorPerformance(event: ActorPerformanceEvent) {
 
   debugPerformance.textContent =
     `${event.actor.id} → ${event.decision.capabilityId}` +
-    ` · intensity ${event.decision.intensity.toFixed(2)}`;
+    ` · intensity ${event.decision.intensity.toFixed(2)}` +
+    ` · ${event.decision.source}${event.decision.source === "jev" ? ` ${event.decision.confidence.toFixed(2)}` : ""}`;
 }
 
-const runtime = new SceneRuntime(plazaScene, new LocalPolicy(), {
+const runtime = new SceneRuntime(
+  plazaScene,
+  new JevPolicy(new LocalPolicy()),
+  {
   onVehicleDecision(decision, opportunity) {
     debugDecision.textContent = describeVehicleDecision(decision, opportunity);
   },
@@ -300,7 +306,8 @@ const runtime = new SceneRuntime(plazaScene, new LocalPolicy(), {
   onComplete() {
     debugPerformance.textContent = "scene complete ✓";
   },
-});
+  },
+);
 
 let personality: PersonalityProfile = demoPersonalities[0];
 runtime.reset(personality);

@@ -1,0 +1,155 @@
+:root {
+  font-family:
+    Inter, ui-rounded, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  color: #f8f3ff;
+  background: #151529;
+  font-synthesis: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  background:
+    radial-gradient(circle at 50% 40%, #2a2c50 0%, #151529 65%, #0e0e1b 100%);
+}
+
+canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+.brand {
+  position: absolute;
+  top: 24px;
+  left: 28px;
+}
+
+.brand strong {
+  display: block;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 26px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.brand span {
+  display: block;
+  margin-top: 5px;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.17em;
+  text-transform: uppercase;
+  opacity: 0.48;
+}
+
+.personality-picker {
+  pointer-events: auto;
+  position: absolute;
+  top: 24px;
+  right: 28px;
+  display: flex;
+  gap: 8px;
+  padding: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  background: rgba(14, 14, 27, 0.58);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.18);
+  backdrop-filter: blur(12px);
+}
+
+.personality-picker button {
+  border: 0;
+  border-radius: 999px;
+  padding: 9px 13px;
+  color: rgba(255, 255, 255, 0.68);
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 720;
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    color 160ms ease,
+    transform 160ms ease;
+}
+
+.personality-picker button:hover {
+  color: white;
+  transform: translateY(-1px);
+}
+
+.personality-picker button.active {
+  color: #1d1831;
+  background: #f5d98a;
+}
+
+.debug {
+  position: absolute;
+  left: 28px;
+  bottom: 26px;
+  min-width: 260px;
+  max-width: min(460px, 70vw);
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 14px;
+  background: rgba(14, 14, 27, 0.48);
+  backdrop-filter: blur(10px);
+  font-size: 11px;
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.debug b {
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.legend {
+  position: absolute;
+  right: 28px;
+  bottom: 26px;
+  font-size: 11px;
+  line-height: 1.65;
+  text-align: right;
+  color: rgba(255, 255, 255, 0.46);
+}
+
+@media (max-width: 720px) {
+  .personality-picker {
+    top: auto;
+    right: 16px;
+    bottom: 16px;
+  }
+
+  .brand {
+    top: 16px;
+    left: 16px;
+  }
+
+  .debug {
+    left: 16px;
+    bottom: 76px;
+  }
+
+  .legend {
+    display: none;
+  }
+}

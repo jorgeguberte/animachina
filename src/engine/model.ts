@@ -3,34 +3,52 @@ export type Vec2 = {
   z: number;
 };
 
-export type Personality = "glamorous" | "shy" | "chaotic";
+export type PersonalityProfile = {
+  id: string;
+  label: string;
+  description: string;
+};
 
-export type PerformanceStyle =
-  | "showy"
-  | "careful"
-  | "impulsive"
-  | "neutral";
+export type VehicleAction =
+  | "approach"
+  | "observe"
+  | "orbit"
+  | "linger"
+  | "exit";
+
+export type FacingMode = "travel" | "target" | "away";
+
+export type ActorCapabilityDefinition = {
+  id: string;
+  label: string;
+  description: string;
+};
 
 export type ActorDefinition = {
   id: string;
   kind: "fountain" | "statue" | "flowers" | "lamp" | "creature";
   position: Vec2;
   tags: string[];
+  interactionRadius: number;
+  capabilities: ActorCapabilityDefinition[];
 };
 
-export type Affordance = {
+export type VehicleOpportunity = {
   id: string;
-  label: string;
-  action: "approach" | "observe" | "linger" | "exit";
+  action: VehicleAction;
   target: Vec2;
   actorId?: string;
+  description: string;
   tags: string[];
 };
 
 export type BeatDefinition = {
   id: string;
   intent: string;
-  affordances: Affordance[];
+  availableActions: VehicleAction[];
+  completion: {
+    minInteractions: number;
+  };
   nextBeatId?: string;
 };
 
@@ -49,49 +67,94 @@ export type SceneDefinition = {
   firstBeatId: string;
 };
 
+export type VehiclePerformance = {
+  speed: number;
+  curvature: number;
+  hesitation: number;
+  dwell: number;
+  facing: FacingMode;
+};
+
 export type VehicleState = {
   position: Vec2;
   heading: number;
   speed: number;
-  personality: Personality;
-  currentAffordanceId?: string;
-  style: PerformanceStyle;
+  personality: PersonalityProfile;
+  currentOpportunityId?: string;
+  performance?: VehiclePerformance;
+};
+
+export type ActorPerformance = {
+  capabilityId: string;
+  intensity: number;
+  duration: number;
+  delay: number;
 };
 
 export type ActorState = {
   id: string;
   attention: number;
-  performance?: string;
+  performance?: ActorPerformance;
 };
 
 export type WorldState = {
   sceneId: string;
   elapsed: number;
   beatId: string;
+  interactionsInBeat: number;
   vehicle: VehicleState;
   actors: Record<string, ActorState>;
   recentEvents: string[];
   completed: boolean;
 };
 
-export type PolicyContext = {
+export type VehiclePolicyContext = {
   scene: SceneDefinition;
   world: Readonly<WorldState>;
   beat: BeatDefinition;
-  availableAffordances: readonly Affordance[];
+  personality: PersonalityProfile;
+  opportunities: readonly VehicleOpportunity[];
 };
 
-export type PolicyDecision = {
-  affordanceId: string;
-  style: PerformanceStyle;
+export type ActorPolicyContext = {
+  scene: SceneDefinition;
+  world: Readonly<WorldState>;
+  beat: BeatDefinition;
+  personality: PersonalityProfile;
+  actor: ActorDefinition;
+  stimulus: {
+    vehicleAction: VehicleAction;
+    vehiclePerformance: VehiclePerformance;
+  };
+  availableCapabilities: readonly ActorCapabilityDefinition[];
+};
+
+export type VehicleDecision = {
+  opportunityId: string;
+  performance: VehiclePerformance;
   confidence: number;
   source: "local" | "jev";
 };
 
-export type PerformanceEvent = {
+export type ActorDecision = {
+  actorId: string;
+  capabilityId: string;
+  intensity: number;
+  duration: number;
+  delay: number;
+  confidence: number;
+  source: "local" | "jev";
+};
+
+export type VehiclePerformanceEvent = {
   beatId: string;
-  affordance: Affordance;
+  opportunity: VehicleOpportunity;
   actor?: ActorDefinition;
-  personality: Personality;
-  style: PerformanceStyle;
+  decision: VehicleDecision;
+};
+
+export type ActorPerformanceEvent = {
+  beatId: string;
+  actor: ActorDefinition;
+  decision: ActorDecision;
 };

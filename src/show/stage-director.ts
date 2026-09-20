@@ -33,10 +33,12 @@ export class StageDirector {
     moment: ActorPerformanceEvent,
   ) {
     const generation = this.generation;
-    const beat = scene.beats.find((candidate) => candidate.id === world.beatId);
+    const beat = scene.beats.find(
+      (candidate) => candidate.id === moment.beatId,
+    );
 
     if (!beat) {
-      throw new Error(`Unknown stage beat: ${world.beatId}`);
+      throw new Error(`Unknown stage beat: ${moment.beatId}`);
     }
 
     const context: StagePolicyContext = {

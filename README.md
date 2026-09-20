@@ -152,6 +152,23 @@ With that capability fixed, Jev judges intensity, duration and anticipation dela
 
 This follows the System One design rule: keep judgments atomic, then compose them in code.
 
+### Probability is part of the performance
+
+Animachina does **not** treat Jev's `choice` field as a script command.
+
+A Choice answer also contains a probability distribution. The runtime samples that distribution with a small amount of generic exploration, so the semantic judgment remains the center of gravity without collapsing every identical starting state into the same ride.
+
+The director applies only generic pacing rules:
+
+- recently used opportunities are softly down-weighted, never forbidden;
+- recently used actor capabilities are softly down-weighted;
+- no personality name has a special-case rule;
+- Score distributions are sampled around Jev's expected score, producing small variations in speed, curvature, hesitation, dwell, intensity and timing.
+
+So a Glamorous profile may strongly prefer the fountain, but it is a **tendency**, not a route table.
+
+The browser console logs Jev's argmax, the actually sampled choice, and the returned probability distribution for each vehicle and actor decision.
+
 If Jev is unavailable or the key is missing, the demo falls back to `LocalPolicy`. The debug overlay exposes the source, so a `local` decision cannot masquerade as Jev.
 
 Jev still does not invent geometry or bypass physical capabilities.
@@ -179,7 +196,7 @@ npm run dev
 
 ## Status
 
-v0.2: capability-driven runtime + real Jev System One policy + server-side API proxy + personality-blind fallback.
+v0.3: capability-driven runtime + Jev System One policy + probabilistic direction from Jev distributions + novelty pressure + server-side API proxy + personality-blind fallback.
 
 The experiment now has a falsifiable test:
 

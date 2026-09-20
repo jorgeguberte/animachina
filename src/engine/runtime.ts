@@ -1,50 +1,76 @@
 import type {
-  Affordance,
+  ActorDefinition,
+  ActorPerformanceEvent,
   BeatDefinition,
-  PerformanceEvent,
-  Personality,
-  PolicyDecision,
+  PersonalityProfile,
   SceneDefinition,
   Vec2,
+  VehicleDecision,
+  VehicleOpportunity,
+  VehiclePerformanceEvent,
   WorldState,
 } from "./model";
 import type { DecisionPolicy } from "./policy";
 
 type RuntimeHooks = {
-  onDecision?: (decision: PolicyDecision, affordance: Affordance) => void;
-  onPerformance?: (event: PerformanceEvent) => void;
+  onVehicleDecision?: (
+    decision: VehicleDecision,
+    opportunity: VehicleOpportunity,
+  ) => void;
+  onVehiclePerformance?: (event: VehiclePerformanceEvent) => void;
+  onActorPerformance?: (event: ActorPerformanceEvent) => void;
   onBeatChanged?: (beat: BeatDefinition) => void;
   onComplete?: () => void;
 };
 
-const distance = (a: Vec2, b: Vec2) =>
-  Math.hypot(b.x - a.x, b.z - a.z);
+const normalize = (value: Vec2): Vec2 => {
+  const length = Math.hypot(value.x, value.z);
 
-const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
+  if (length < 0.0001) {
+    return { x: -1, z: 0 };
+  }
+
+  return {
+    x: value.x / length,
+    z: value.z / length,
+  };
+};
+
+const rotated90 = (value: Vec2): Vec2 => ({
+  x: -value.z,
+  z: value.x,
+});
 
 export class SceneRuntime {
   readonly world: WorldState;
 
-  private activeAffordance?: Affordance;
-  private pendingDecision = false;
+  private activeOpportunity?: VehicleOpportunity;
+  private activeDecision?: VehicleDecision;
+  private pendingVehicleDecision = false;
+  private hesitationRemaining = 0;
   private dwellRemaining = 0;
-  private lastMove = { x: 0, z: 1 };
 
   constructor(
     readonly scene: SceneDefinition,
     private readonly policy: DecisionPolicy,
     private readonly hooks: RuntimeHooks = {},
   ) {
+    const personality: PersonalityProfile = {
+      id: "unassigned",
+      label: "Unassigned",
+      description: "No personality profile has been selected.",
+    };
+
     this.world = {
       sceneId: scene.id,
       elapsed: 0,
       beatId: scene.firstBeatId,
+      interactionsInBeat: 0,
       vehicle: {
         position: { ...scene.entry },
         heading: 0,
         speed: 0,
-        personality: "glamorous",
-        style: "neutral",
+        personality,
       },
       actors: Object.fromEntries(
         scene.actors.map((actor) => [
@@ -57,15 +83,15 @@ export class SceneRuntime {
     };
   }
 
-  reset(personality: Personality) {
+  reset(personality: PersonalityProfile) {
     this.world.elapsed = 0;
     this.world.beatId = this.scene.firstBeatId;
+    this.world.interactionsInBeat = 0;
     this.world.vehicle = {
       position: { ...this.scene.entry },
       heading: 0,
       speed: 0,
       personality,
-      style: "neutral",
     };
     this.world.actors = Object.fromEntries(
       this.scene.actors.map((actor) => [
@@ -76,10 +102,11 @@ export class SceneRuntime {
     this.world.recentEvents = [];
     this.world.completed = false;
 
-    this.activeAffordance = undefined;
-    this.pendingDecision = false;
+    this.activeOpportunity = undefined;
+    this.activeDecision = undefined;
+    this.pendingVehicleDecision = false;
+    this.hesitationRemaining = 0;
     this.dwellRemaining = 0;
-    this.lastMove = { x: 0, z: 1 };
 
     this.hooks.onBeatChanged?.(this.currentBeat());
   }
@@ -89,22 +116,60 @@ export class SceneRuntime {
 
     this.world.elapsed += dt;
 
+    if (this.hesitationRemaining > 0) {
+      this.hesitationRemaining -= dt;
+      this.world.vehicle.speed = 0;
+      return;
+    }
+
     if (this.dwellRemaining > 0) {
       this.dwellRemaining -= dt;
       this.world.vehicle.speed = 0;
 
       if (this.dwellRemaining <= 0) {
-        this.advanceBeat();
+        this.finishInteraction();
       }
+
       return;
     }
 
-    if (!this.activeAffordance) {
-      void this.requestDecision();
+    if (!this.activeOpportunity || !this.activeDecision) {
+      void this.requestVehicleDecision();
       return;
     }
 
-    this.moveVehicle(dt, this.activeAffordance);
+    this.moveVehicle(dt, this.activeOpportunity, this.activeDecision);
+  }
+
+  getAvailableOpportunities(): VehicleOpportunity[] {
+    const beat = this.currentBeat();
+    const opportunities: VehicleOpportunity[] = [];
+
+    for (const action of beat.availableActions) {
+      if (action === "exit") {
+        opportunities.push({
+          id: "exit:scene",
+          action,
+          target: { ...this.scene.exit },
+          description: "Continue through the scene exit.",
+          tags: ["transition"],
+        });
+        continue;
+      }
+
+      for (const actor of this.scene.actors) {
+        opportunities.push({
+          id: `${action}:${actor.id}`,
+          action,
+          actorId: actor.id,
+          target: this.interactionTarget(actor, action),
+          description: `${action} ${actor.kind} "${actor.id}"`,
+          tags: [...actor.tags, action],
+        });
+      }
+    }
+
+    return opportunities;
   }
 
   private currentBeat(): BeatDefinition {
@@ -119,47 +184,85 @@ export class SceneRuntime {
     return beat;
   }
 
-  private async requestDecision() {
-    if (this.pendingDecision || this.world.completed) return;
+  private interactionTarget(
+    actor: ActorDefinition,
+    action: VehicleOpportunity["action"],
+  ): Vec2 {
+    const fromActorToVehicle = normalize({
+      x: this.world.vehicle.position.x - actor.position.x,
+      z: this.world.vehicle.position.z - actor.position.z,
+    });
 
-    this.pendingDecision = true;
+    const radiusMultiplier =
+      action === "observe"
+        ? 1.55
+        : action === "linger"
+          ? 1.35
+          : action === "orbit"
+            ? 1.15
+            : 1;
+
+    let direction = fromActorToVehicle;
+
+    if (action === "orbit") {
+      direction = rotated90(fromActorToVehicle);
+    }
+
+    return {
+      x: actor.position.x + direction.x * actor.interactionRadius * radiusMultiplier,
+      z: actor.position.z + direction.z * actor.interactionRadius * radiusMultiplier,
+    };
+  }
+
+  private async requestVehicleDecision() {
+    if (this.pendingVehicleDecision || this.world.completed) return;
+
+    this.pendingVehicleDecision = true;
     const beat = this.currentBeat();
+    const opportunities = this.getAvailableOpportunities();
 
     try {
-      const decision = await this.policy.choose({
+      const decision = await this.policy.chooseVehicle({
         scene: this.scene,
         world: this.world,
         beat,
-        availableAffordances: beat.affordances,
+        personality: this.world.vehicle.personality,
+        opportunities,
       });
 
-      const selected = beat.affordances.find(
-        (affordance) => affordance.id === decision.affordanceId,
+      const selected = opportunities.find(
+        (opportunity) => opportunity.id === decision.opportunityId,
       );
 
       if (!selected) {
         throw new Error(
-          `Policy selected unavailable affordance: ${decision.affordanceId}`,
+          `Policy selected unavailable opportunity: ${decision.opportunityId}`,
         );
       }
 
-      this.world.vehicle.currentAffordanceId = selected.id;
-      this.world.vehicle.style = decision.style;
-      this.activeAffordance = selected;
+      this.world.vehicle.currentOpportunityId = selected.id;
+      this.world.vehicle.performance = decision.performance;
+      this.activeOpportunity = selected;
+      this.activeDecision = decision;
+      this.hesitationRemaining = Math.max(0, decision.performance.hesitation);
 
       this.pushEvent(
-        `decision:${beat.id}:${selected.id}:${decision.style}`,
+        `vehicle:${beat.id}:${selected.id}:speed=${decision.performance.speed.toFixed(2)}`,
       );
 
-      this.hooks.onDecision?.(decision, selected);
+      this.hooks.onVehicleDecision?.(decision, selected);
     } finally {
-      this.pendingDecision = false;
+      this.pendingVehicleDecision = false;
     }
   }
 
-  private moveVehicle(dt: number, affordance: Affordance) {
+  private moveVehicle(
+    dt: number,
+    opportunity: VehicleOpportunity,
+    decision: VehicleDecision,
+  ) {
     const position = this.world.vehicle.position;
-    const target = affordance.target;
+    const target = opportunity.target;
 
     const dx = target.x - position.x;
     const dz = target.z - position.z;
@@ -169,87 +272,147 @@ export class SceneRuntime {
       position.x = target.x;
       position.z = target.z;
       this.world.vehicle.speed = 0;
-      this.arrive(affordance);
+      this.orientAtArrival(opportunity, decision);
+      this.arrive(opportunity, decision);
       return;
     }
 
-    const direction = {
-      x: dx / remaining,
-      z: dz / remaining,
-    };
+    const direction = normalize({ x: dx, z: dz });
+    const tangent = rotated90(direction);
 
-    const style = this.world.vehicle.style;
+    const bendEnvelope = Math.sin(
+      Math.min(1, Math.max(0, 1 - remaining / 8)) * Math.PI,
+    );
 
-    const desiredSpeed =
-      style === "showy"
-        ? 2.45
-        : style === "careful"
-          ? 1.45
-          : style === "impulsive"
-            ? 2.85
-            : 2.0;
+    const move = normalize({
+      x:
+        direction.x +
+        tangent.x * decision.performance.curvature * bendEnvelope,
+      z:
+        direction.z +
+        tangent.z * decision.performance.curvature * bendEnvelope,
+    });
 
-    // Enough steering variation to make personality visible while remaining
-    // deterministic and renderer-independent.
-    const progress = clamp01(1 - remaining / 8);
-    const flourish =
-      style === "showy"
-        ? Math.sin(progress * Math.PI * 2) * 0.28
-        : style === "careful"
-          ? Math.sin(progress * Math.PI) * 0.08
-          : style === "impulsive"
-            ? Math.sin(progress * Math.PI * 5) * 0.17
-            : 0;
-
-    const tangent = { x: -direction.z, z: direction.x };
-    const move = {
-      x: direction.x + tangent.x * flourish,
-      z: direction.z + tangent.z * flourish,
-    };
-
-    const moveLength = Math.hypot(move.x, move.z) || 1;
-    move.x /= moveLength;
-    move.z /= moveLength;
-
+    const desiredSpeed = Math.max(0.2, decision.performance.speed);
     const step = Math.min(remaining, desiredSpeed * dt);
+
     position.x += move.x * step;
     position.z += move.z * step;
 
-    this.lastMove = move;
     this.world.vehicle.speed = desiredSpeed;
     this.world.vehicle.heading = Math.atan2(move.x, move.z);
   }
 
-  private arrive(affordance: Affordance) {
-    const beat = this.currentBeat();
-    const actor = affordance.actorId
-      ? this.scene.actors.find((item) => item.id === affordance.actorId)
+  private orientAtArrival(
+    opportunity: VehicleOpportunity,
+    decision: VehicleDecision,
+  ) {
+    const actor = opportunity.actorId
+      ? this.scene.actors.find((item) => item.id === opportunity.actorId)
       : undefined;
 
-    this.pushEvent(`arrived:${affordance.id}`);
+    if (!actor || decision.performance.facing === "travel") return;
+
+    const toward = normalize({
+      x: actor.position.x - this.world.vehicle.position.x,
+      z: actor.position.z - this.world.vehicle.position.z,
+    });
+
+    const direction =
+      decision.performance.facing === "away"
+        ? { x: -toward.x, z: -toward.z }
+        : toward;
+
+    this.world.vehicle.heading = Math.atan2(direction.x, direction.z);
+  }
+
+  private arrive(
+    opportunity: VehicleOpportunity,
+    decision: VehicleDecision,
+  ) {
+    const beat = this.currentBeat();
+    const actor = opportunity.actorId
+      ? this.scene.actors.find((item) => item.id === opportunity.actorId)
+      : undefined;
+
+    this.pushEvent(`arrived:${opportunity.id}`);
+    this.world.interactionsInBeat += 1;
+
+    this.hooks.onVehiclePerformance?.({
+      beatId: beat.id,
+      opportunity,
+      actor,
+      decision,
+    });
 
     if (actor) {
       const actorState = this.world.actors[actor.id];
       actorState.attention = 1;
-      actorState.performance = `${this.world.vehicle.style}:${affordance.action}`;
+      void this.requestActorReaction(actor, opportunity, decision);
     }
 
-    this.hooks.onPerformance?.({
-      beatId: beat.id,
-      affordance,
-      actor,
-      personality: this.world.vehicle.personality,
-      style: this.world.vehicle.style,
-    });
-
-    this.activeAffordance = undefined;
-    this.world.vehicle.currentAffordanceId = undefined;
-
-    this.dwellRemaining = affordance.action === "exit" ? 0.25 : 1.35;
+    this.world.vehicle.currentOpportunityId = undefined;
+    this.dwellRemaining = Math.max(0.15, decision.performance.dwell);
   }
 
-  private advanceBeat() {
+  private async requestActorReaction(
+    actor: ActorDefinition,
+    opportunity: VehicleOpportunity,
+    vehicleDecision: VehicleDecision,
+  ) {
     const beat = this.currentBeat();
+
+    const decision = await this.policy.chooseActor({
+      scene: this.scene,
+      world: this.world,
+      beat,
+      personality: this.world.vehicle.personality,
+      actor,
+      stimulus: {
+        vehicleAction: opportunity.action,
+        vehiclePerformance: vehicleDecision.performance,
+      },
+      availableCapabilities: actor.capabilities,
+    });
+
+    if (!decision) return;
+
+    if (!actor.capabilities.some((capability) => capability.id === decision.capabilityId)) {
+      throw new Error(
+        `Policy selected unavailable capability "${decision.capabilityId}" for actor "${actor.id}"`,
+      );
+    }
+
+    this.world.actors[actor.id].performance = {
+      capabilityId: decision.capabilityId,
+      intensity: decision.intensity,
+      duration: decision.duration,
+      delay: decision.delay,
+    };
+
+    this.pushEvent(
+      `actor:${actor.id}:${decision.capabilityId}:intensity=${decision.intensity.toFixed(2)}`,
+    );
+
+    this.hooks.onActorPerformance?.({
+      beatId: beat.id,
+      actor,
+      decision,
+    });
+  }
+
+  private finishInteraction() {
+    this.activeOpportunity = undefined;
+    this.activeDecision = undefined;
+    this.world.vehicle.performance = undefined;
+
+    const beat = this.currentBeat();
+    const satisfied =
+      this.world.interactionsInBeat >= beat.completion.minInteractions;
+
+    if (!satisfied) {
+      return;
+    }
 
     if (!beat.nextBeatId) {
       this.world.completed = true;
@@ -260,12 +423,13 @@ export class SceneRuntime {
     }
 
     this.world.beatId = beat.nextBeatId;
+    this.world.interactionsInBeat = 0;
     this.pushEvent(`beat:${beat.nextBeatId}`);
     this.hooks.onBeatChanged?.(this.currentBeat());
   }
 
   private pushEvent(event: string) {
     this.world.recentEvents.push(event);
-    this.world.recentEvents = this.world.recentEvents.slice(-12);
+    this.world.recentEvents = this.world.recentEvents.slice(-16);
   }
 }

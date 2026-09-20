@@ -1,24 +1,33 @@
-import type {
-  PersonalityProfile,
-  SceneDefinition,
-} from "../engine/model";
+import type { PersonalityProfile, SceneDefinition } from "../engine/model";
 
 export const demoPersonalities: PersonalityProfile[] = [
   {
+    id: "wonder",
+    label: "Wonder",
+    description:
+      "You see everything with childlike wonder. Small details captivate you; every encounter might hold a secret.",
+  },
+  {
+    id: "dreamer",
+    label: "Dreamer",
+    description:
+      "You are contemplative and drawn to atmosphere, lingering silences and poetic connections between things.",
+  },
+  {
     id: "glamorous",
-    label: "💎 Glamorous",
+    label: "Glamorous",
     description:
       "You enjoy being noticed, making an entrance, and turning an encounter into a performance.",
   },
   {
     id: "shy",
-    label: "🫣 Shy",
+    label: "Shy",
     description:
       "You are cautious around attention, curious from a distance, and prefer gentle encounters.",
   },
   {
     id: "chaotic",
-    label: "😈 Chaotic",
+    label: "Chaotic",
     description:
       "You follow impulses, poke at unusual things, and enjoy surprising reactions.",
   },
@@ -37,6 +46,32 @@ export const plazaScene: SceneDefinition = {
   exit: { x: 7.2, z: 0 },
   actors: [
     {
+      id: "lantern",
+      kind: "lamp",
+      position: { x: -3.3, z: -2.1 },
+      interactionRadius: 0.95,
+      tags: ["guiding", "warm", "mysterious", "patient"],
+      capabilities: [
+        {
+          id: "beckon",
+          label: "Beckon",
+          description:
+            "Lean and sway gently, as if inviting the visitor closer.",
+        },
+        {
+          id: "glimmer",
+          label: "Glimmer",
+          description:
+            "Let the lantern softly swell and contract like a secret signal.",
+        },
+        {
+          id: "bow",
+          label: "Bow",
+          description: "Offer a slow, courteous bow of light.",
+        },
+      ],
+    },
+    {
       id: "fountain",
       kind: "fountain",
       position: { x: 0, z: 0 },
@@ -46,7 +81,8 @@ export const plazaScene: SceneDefinition = {
         {
           id: "pulse",
           label: "Pulse",
-          description: "Raise and lower the water in a rhythmic acknowledgement.",
+          description:
+            "Raise and lower the water in a rhythmic acknowledgement.",
         },
         {
           id: "burst",
@@ -75,7 +111,8 @@ export const plazaScene: SceneDefinition = {
         {
           id: "turn-away",
           label: "Turn away",
-          description: "Notice the vehicle, then conspicuously refuse eye contact.",
+          description:
+            "Notice the vehicle, then conspicuously refuse eye contact.",
         },
         {
           id: "pose",
@@ -128,7 +165,8 @@ export const plazaScene: SceneDefinition = {
         {
           id: "circle",
           label: "Circle",
-          description: "Circle around its home position while watching the vehicle.",
+          description:
+            "Circle around its home position while watching the vehicle.",
         },
       ],
     },
@@ -142,6 +180,22 @@ export const plazaScene: SceneDefinition = {
       completion: {
         minInteractions: 2,
       },
+      nextBeatId: "discovery",
+    },
+    {
+      id: "discovery",
+      intent:
+        "Deepen the relationship. Reveal a new side of this place, or revisit a performer with a changed understanding. Earn one memorable moment, without demanding spectacle.",
+      availableActions: ["approach", "observe", "orbit", "linger"],
+      completion: { minInteractions: 2 },
+      nextBeatId: "farewell",
+    },
+    {
+      id: "farewell",
+      intent:
+        "One final exchange before leaving. Acknowledge the shared history and give the guest a feeling worth carrying away.",
+      availableActions: ["observe", "linger", "approach"],
+      completion: { minInteractions: 1 },
       nextBeatId: "departure",
     },
     {

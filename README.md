@@ -87,15 +87,15 @@ The policy answers:
 
 Animachina then executes the chosen capability deterministically.
 
-## v0.1 demo
+## Moonlit Plaza demo
 
 The first scene is **Moonlit Plaza**:
 
-- top-down Three.js with an `OrthographicCamera`
+- a crafted mechanical garden in Three.js with isometric, overhead and follow cameras
 - one vehicle
-- fountain, statue, flowers and a small creature
-- three semantic personality profiles: Glamorous, Shy and Chaotic
-- two beats: arrival and departure
+- fountain, statue, flowers, a clockwork creature and a living lantern
+- five semantic profiles: Wonder, Dreamer, Glamorous, Shy and Chaotic, plus free-form visitors
+- four beats: arrival, discovery, farewell and departure
 
 The arrival beat does **not** list authored routes to each actor. It only allows generic actions such as `approach`, `observe`, `orbit` and `linger`.
 
@@ -179,7 +179,7 @@ In short:
 
 ## Adaptive show control
 
-v0.4 adds a second policy boundary after performer behavior:
+The stage policy adds a second decision boundary after the actor selects its behavior:
 
 ```text
 vehicle decision
@@ -188,11 +188,11 @@ vehicle performs
       ↓
 actor decision
       ↓
-actor performs
+actor selects performance
       ↓
 StageDirector  ← Jev
    ╱   │   ╲
-light sound set motion
+actor + light + sound + set perform together
       ↓
 show cues feed back into recentEvents
 ```
@@ -256,9 +256,9 @@ Animachina turns that into a shared attack / sustain / release envelope, so ligh
 
 The selected light, sound and scenic-motion cues are written back into `recentEvents`. Later vehicle and actor judgments therefore know what the attraction itself just did.
 
-## Why top-down first?
+## Rendering boundary
 
-The runtime is renderer-independent. The prototype uses X/Z scene space with an orthographic camera, so the later 3D move is mostly a stagecraft swap:
+The runtime is renderer-independent and uses X/Z scene space. The renderer now offers an isometric miniature, a plan view and a follow camera. Future stagecraft can replace:
 
 - orthographic → perspective camera,
 - primitives → authored sets and characters,
@@ -275,10 +275,44 @@ npm run dev
 
 ## Status
 
-v0.4: capability-driven runtime + probabilistic Jev performer policy + Jev StageDirector + adaptive light, procedural sound and scenic machinery + server-side API proxy + personality-blind fallbacks.
+v0.5: a mechanical moon garden, readable four-beat performances, clearance-aware motion, synchronized actor/stage moments, custom visitors, and optional DiffusionGemma creative direction.
+
+![Moonlit Plaza](docs/moonlit-plaza.webp)
+
+### Experience controls
+
+- **Garden / Plan / Follow**: smoothly switch between the miniature, spatial overview and vehicle-focused camera.
+- **Pause / Again**: pause simulation and enabled audio, or start a fresh performance with the current visitor and story.
+- **Motion / Calm**: reduce ambient movement and camera transitions; system reduced-motion preferences are respected on load.
+- **Sound**: explicit audio unlock and on/off control. Reset stops voices from the previous performance.
+- **Behind the magic**: inspect vehicle, actor and stage decisions, confidence and provider source.
+- **Bring your own character**: submit a semantic description. No new personality-specific rules are added.
+
+### Optional DiffusionGemma direction
+
+Add `NVIDIA_API_KEY` to `.env.local`, restart Vite, then use **Dream up a different story**.
+The server calls NVIDIA NIM's `google/diffusiongemma-26b-a4b-it` at `https://integrate.api.nvidia.com/v1/chat/completions`.
+The adapter follows [NVIDIA's published endpoint example](https://build.nvidia.com/google/diffusiongemma-26b-a4b-it).
+
+DiffusionGemma composes a title, creative intent and the four beat intentions. The response is validated and reduced to those fields. It cannot change geometry, introduce capabilities, alter the beat graph or execute code. Jev still chooses the actual moment-to-moment performances. A failed or unconfigured creative call leaves the current scene intact and reports the problem; no generated story is fabricated locally.
+
+Both API keys stay server-side. These endpoints are provided by the Vite development/preview server; a static `dist` host needs equivalent server routes. Creative requests are bounded to 22 seconds upstream, while Jev requests are bounded to 3.2 seconds upstream / 3.5 seconds in the browser.
+
+### Timing and navigation
+
+The runtime holds the vehicle while the actor and supporting stage decisions are prepared. The actor and stage then start together, retaining their authored anticipation, and the dwell covers the longer performance envelope. State is snapshotted before asynchronous policy calls; reset generations prevent stale decisions entering a new ride.
+
+Routes are derived from circular performer clearance footprints using a visibility graph, with rounded corners and expressive arcs admitted only when collision-free. Ease-in/ease-out travel and smoothed facing replace constant-speed steering. This is a simulated navigation model, not a hardware safety controller; decorative scenery is not included in the obstacle graph.
+
+### Validation
+
+Run `npm ci`, `npm test`, and `npm run build`. Tests cover performer clearance across action/position/curvature combinations, waiting for delayed actor/stage responses, a complete four-beat ride, resets during in-flight work, stage response ordering and creative-output validation.
+
+The UI was smoke-tested in Chromium at desktop and mobile sizes, including profile changes, pause/resume, camera controls, inspector controls missing-key behavior, audio toggling, the two-stage Jev request contract and applying a creative story with simulated provider responses. Live Jev/NIM output quality and remote latency still need verification with configured credentials.
 
 The experiment now has a falsifiable test:
 
 > Run the same authored scene with different semantic personality descriptions. Distinct behavior should emerge from Jev decisions, **without adding personality-specific engine rules**.
 
 Next: observe whether the **same behavioral moment** receives meaningfully different but coherent stage treatment across personalities and runs, then replace prototype show assets with richer authored rigs only after the direction layer proves itself.
+

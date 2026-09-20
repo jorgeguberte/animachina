@@ -4,11 +4,7 @@ import type {
   WorldState,
 } from "../engine/model";
 import type { StagePolicy } from "./policy";
-import type {
-  ShowSpec,
-  StageDecisionEvent,
-  StagePolicyContext,
-} from "./model";
+import type { ShowSpec, StageDecisionEvent, StagePolicyContext } from "./model";
 
 type StageDirectorHooks = {
   onDecision?: (event: StageDecisionEvent) => void;
@@ -32,7 +28,7 @@ export class StageDirector {
     world: Readonly<WorldState>,
     moment: ActorPerformanceEvent,
   ) {
-    const generation = this.generation;
+    const generation = ++this.generation;
     const beat = scene.beats.find(
       (candidate) => candidate.id === moment.beatId,
     );
@@ -43,7 +39,7 @@ export class StageDirector {
 
     const context: StagePolicyContext = {
       scene,
-      world,
+      world: structuredClone(world),
       beat,
       personality: world.vehicle.personality,
       moment,
@@ -58,5 +54,6 @@ export class StageDirector {
       moment,
       decision,
     });
+    return decision;
   }
 }

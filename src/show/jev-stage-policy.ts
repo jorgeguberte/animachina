@@ -65,7 +65,10 @@ function sampleDistribution(
   const uniform = 1 / options.length;
 
   const raw = options.map((option) =>
-    Math.pow(Math.max(0, probabilities[option] ?? 0) + 1e-9, inverseTemperature),
+    Math.pow(
+      Math.max(0, probabilities[option] ?? 0) + 1e-9,
+      inverseTemperature,
+    ),
   );
 
   const totalRaw = raw.reduce((sum, value) => sum + value, 0);
@@ -130,6 +133,7 @@ async function askSystemOne(
 ): Promise<SystemOneResponse> {
   const response = await fetch("/api/system-one", {
     method: "POST",
+    signal: AbortSignal.timeout(3500),
     headers: {
       "Content-Type": "application/json",
     },
@@ -316,10 +320,7 @@ export class JevStagePolicy implements StagePolicy {
       soundCueId,
       setMotionCueId,
       energy: interpolate(sampleScore(energy), ENERGY),
-      anticipation: interpolate(
-        sampleScore(anticipation, 0.22),
-        ANTICIPATION,
-      ),
+      anticipation: interpolate(sampleScore(anticipation, 0.22), ANTICIPATION),
       sustain: interpolate(sampleScore(sustain, 0.22), SUSTAIN),
       confidence: averageConfidence([
         lighting,

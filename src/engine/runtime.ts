@@ -1,3 +1,4 @@
+import { planPath, pathLength, pointOnPath } from "./movement";
 import type {
   ActorDefinition,
   ActorPerformanceEvent,
@@ -18,7 +19,10 @@ type RuntimeHooks = {
     opportunity: VehicleOpportunity,
   ) => void;
   onVehiclePerformance?: (event: VehiclePerformanceEvent) => void;
-  onActorPerformance?: (event: ActorPerformanceEvent) => void;
+  onActorPerformance?: (
+    event: ActorPerformanceEvent,
+  ) => Promise<number | void> | number | void;
+  onError?: (error: unknown) => void;
   onBeatChanged?: (beat: BeatDefinition) => void;
   onComplete?: () => void;
 };
@@ -47,6 +51,11 @@ export class SceneRuntime {
   private activeOpportunity?: VehicleOpportunity;
   private activeDecision?: VehicleDecision;
   private pendingVehicleDecision = false;
+  private pendingActor = false;
+  private travelPath: Vec2[] = [];
+  private travelLength = 0;
+  private travelProgress = 0;
+  private travelDuration = 1;
   private generation = 0;
   private hesitationRemaining = 0;
   private dwellRemaining = 0;
@@ -74,10 +83,7 @@ export class SceneRuntime {
         personality,
       },
       actors: Object.fromEntries(
-        scene.actors.map((actor) => [
-          actor.id,
-          { id: actor.id, attention: 0 },
-        ]),
+        scene.actors.map((actor) => [actor.id, { id: actor.id, attention: 0 }]),
       ),
       recentEvents: [],
       completed: false,
@@ -107,6 +113,7 @@ export class SceneRuntime {
     this.activeOpportunity = undefined;
     this.activeDecision = undefined;
     this.pendingVehicleDecision = false;
+    this.pendingActor = false;
     this.hesitationRemaining = 0;
     this.dwellRemaining = 0;
 
@@ -120,7 +127,9 @@ export class SceneRuntime {
   step(dt: number) {
     if (this.world.completed) return;
 
+    dt = Math.max(0, Math.min(0.05, dt));
     this.world.elapsed += dt;
+    if (this.pendingActor) return;
 
     if (this.hesitationRemaining > 0) {
       this.hesitationRemaining -= dt;
@@ -215,8 +224,12 @@ export class SceneRuntime {
     }
 
     return {
-      x: actor.position.x + direction.x * actor.interactionRadius * radiusMultiplier,
-      z: actor.position.z + direction.z * actor.interactionRadius * radiusMultiplier,
+      x:
+        actor.position.x +
+        direction.x * actor.interactionRadius * radiusMultiplier,
+      z:
+        actor.position.z +
+        direction.z * actor.interactionRadius * radiusMultiplier,
     };
   }
 
@@ -231,7 +244,7 @@ export class SceneRuntime {
     try {
       const decision = await this.policy.chooseVehicle({
         scene: this.scene,
-        world: this.world,
+        world: structuredClone(this.world),
         beat,
         personality: this.world.vehicle.personality,
         opportunities,
@@ -249,10 +262,23 @@ export class SceneRuntime {
         );
       }
 
+      const travelPath = planPath(
+        this.scene,
+        this.world.vehicle.position,
+        selected.target,
+        decision.performance.curvature,
+      );
       this.world.vehicle.currentOpportunityId = selected.id;
       this.world.vehicle.performance = decision.performance;
       this.activeOpportunity = selected;
       this.activeDecision = decision;
+      this.travelPath = travelPath;
+      this.travelLength = pathLength(travelPath);
+      this.travelProgress = 0;
+      this.travelDuration = Math.max(
+        0.65,
+        (this.travelLength / Math.max(0.2, decision.performance.speed)) * 1.5,
+      );
       this.hesitationRemaining = Math.max(0, decision.performance.hesitation);
 
       this.pushEvent(
@@ -260,6 +286,11 @@ export class SceneRuntime {
       );
 
       this.hooks.onVehicleDecision?.(decision, selected);
+    } catch (error) {
+      if (generation === this.generation) {
+        this.hesitationRemaining = 1;
+        this.hooks.onError?.(error);
+      }
     } finally {
       if (generation === this.generation) {
         this.pendingVehicleDecision = false;
@@ -273,45 +304,32 @@ export class SceneRuntime {
     decision: VehicleDecision,
   ) {
     const position = this.world.vehicle.position;
-    const target = opportunity.target;
-
-    const dx = target.x - position.x;
-    const dz = target.z - position.z;
-    const remaining = Math.hypot(dx, dz);
-
-    if (remaining < 0.08) {
-      position.x = target.x;
-      position.z = target.z;
+    this.travelProgress = Math.min(
+      1,
+      this.travelProgress + dt / this.travelDuration,
+    );
+    const u = this.travelProgress;
+    const eased = u * u * (3 - 2 * u);
+    const oldX = position.x;
+    const oldZ = position.z;
+    const next = pointOnPath(this.travelPath, eased, this.travelLength);
+    position.x = next.x;
+    position.z = next.z;
+    this.world.vehicle.speed =
+      dt > 0 ? Math.hypot(position.x - oldX, position.z - oldZ) / dt : 0;
+    if (this.world.vehicle.speed > 0.01) {
+      const heading = Math.atan2(position.x - oldX, position.z - oldZ);
+      const delta = Math.atan2(
+        Math.sin(heading - this.world.vehicle.heading),
+        Math.cos(heading - this.world.vehicle.heading),
+      );
+      this.world.vehicle.heading += delta * (1 - Math.exp(-dt * 7));
+    }
+    if (u >= 1) {
       this.world.vehicle.speed = 0;
       this.orientAtArrival(opportunity, decision);
       this.arrive(opportunity, decision);
-      return;
     }
-
-    const direction = normalize({ x: dx, z: dz });
-    const tangent = rotated90(direction);
-
-    const bendEnvelope = Math.sin(
-      Math.min(1, Math.max(0, 1 - remaining / 8)) * Math.PI,
-    );
-
-    const move = normalize({
-      x:
-        direction.x +
-        tangent.x * decision.performance.curvature * bendEnvelope,
-      z:
-        direction.z +
-        tangent.z * decision.performance.curvature * bendEnvelope,
-    });
-
-    const desiredSpeed = Math.max(0.2, decision.performance.speed);
-    const step = Math.min(remaining, desiredSpeed * dt);
-
-    position.x += move.x * step;
-    position.z += move.z * step;
-
-    this.world.vehicle.speed = desiredSpeed;
-    this.world.vehicle.heading = Math.atan2(move.x, move.z);
   }
 
   private orientAtArrival(
@@ -337,10 +355,7 @@ export class SceneRuntime {
     this.world.vehicle.heading = Math.atan2(direction.x, direction.z);
   }
 
-  private arrive(
-    opportunity: VehicleOpportunity,
-    decision: VehicleDecision,
-  ) {
+  private arrive(opportunity: VehicleOpportunity, decision: VehicleDecision) {
     const beat = this.currentBeat();
     const actor = opportunity.actorId
       ? this.scene.actors.find((item) => item.id === opportunity.actorId)
@@ -359,7 +374,15 @@ export class SceneRuntime {
     if (actor) {
       const actorState = this.world.actors[actor.id];
       actorState.attention = 1;
-      void this.requestActorReaction(actor, opportunity, decision);
+      this.pendingActor = true;
+      const generation = this.generation;
+      void this.requestActorReaction(actor, opportunity, decision)
+        .catch((error) => {
+          if (generation === this.generation) this.hooks.onError?.(error);
+        })
+        .finally(() => {
+          if (generation === this.generation) this.pendingActor = false;
+        });
     }
 
     this.world.vehicle.currentOpportunityId = undefined;
@@ -376,7 +399,7 @@ export class SceneRuntime {
 
     const decision = await this.policy.chooseActor({
       scene: this.scene,
-      world: this.world,
+      world: structuredClone(this.world),
       beat,
       personality: this.world.vehicle.personality,
       actor,
@@ -389,7 +412,11 @@ export class SceneRuntime {
 
     if (generation !== this.generation || !decision) return;
 
-    if (!actor.capabilities.some((capability) => capability.id === decision.capabilityId)) {
+    if (
+      !actor.capabilities.some(
+        (capability) => capability.id === decision.capabilityId,
+      )
+    ) {
       throw new Error(
         `Policy selected unavailable capability "${decision.capabilityId}" for actor "${actor.id}"`,
       );
@@ -406,11 +433,17 @@ export class SceneRuntime {
       `actor:${actor.id}:${decision.capabilityId}:intensity=${decision.intensity.toFixed(2)}`,
     );
 
-    this.hooks.onActorPerformance?.({
+    const stageDuration = await this.hooks.onActorPerformance?.({
       beatId: beat.id,
       actor,
       decision,
     });
+    if (generation !== this.generation) return;
+    this.dwellRemaining = Math.max(
+      this.dwellRemaining,
+      decision.delay + decision.duration + 0.35,
+      stageDuration ?? 0,
+    );
   }
 
   private finishInteraction() {

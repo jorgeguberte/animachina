@@ -49,11 +49,7 @@ type SamplingOptions = {
 function sampleDistribution(
   probabilities: Record<string, number>,
   options: readonly string[],
-  {
-    temperature = 1,
-    exploration = 0,
-    multipliers = {},
-  }: SamplingOptions = {},
+  { temperature = 1, exploration = 0, multipliers = {} }: SamplingOptions = {},
 ): string {
   if (options.length === 0) {
     throw new Error("Cannot sample an empty distribution.");
@@ -75,8 +71,7 @@ function sampleDistribution(
 
     // Exploration is generic entropy, not personality logic. It keeps a
     // calibrated distribution from collapsing into the same argmax forever.
-    const mixed =
-      semanticWeight * (1 - exploration) + uniform * exploration;
+    const mixed = semanticWeight * (1 - exploration) + uniform * exploration;
 
     return mixed * Math.max(0, multipliers[option] ?? 1);
   });
@@ -199,6 +194,13 @@ function compactWorld(context: VehiclePolicyContext | ActorPolicyContext) {
       label: context.personality.label,
       description: context.personality.description,
     },
+    pacing: {
+      interactions_in_beat: context.world.interactionsInBeat,
+      minimum_interactions: context.beat.completion.minInteractions,
+      elapsed_seconds: Math.round(context.world.elapsed),
+      direction:
+        "Build a readable emotional arc. Let recent events matter; balance novelty with callbacks. Stillness is a valid performance choice.",
+    },
     current_vehicle: {
       position: `${round(context.world.vehicle.position.x)}, ${round(
         context.world.vehicle.position.z,
@@ -225,6 +227,7 @@ async function askSystemOne(
 ): Promise<SystemOneResponse> {
   const response = await fetch("/api/system-one", {
     method: "POST",
+    signal: AbortSignal.timeout(3500),
     headers: {
       "Content-Type": "application/json",
     },
@@ -272,7 +275,10 @@ export class JevPolicy implements DecisionPolicy {
     } catch (error) {
       if (!this.fallback) throw error;
 
-      console.warn("[Animachina] Jev vehicle decision failed; using fallback.", error);
+      console.warn(
+        "[Animachina] Jev vehicle decision failed; using fallback.",
+        error,
+      );
       return this.fallback.chooseVehicle(context);
     }
   }
@@ -285,7 +291,10 @@ export class JevPolicy implements DecisionPolicy {
     } catch (error) {
       if (!this.fallback) throw error;
 
-      console.warn("[Animachina] Jev actor decision failed; using fallback.", error);
+      console.warn(
+        "[Animachina] Jev actor decision failed; using fallback.",
+        error,
+      );
       return this.fallback.chooseActor(context);
     }
   }
@@ -321,8 +330,8 @@ export class JevPolicy implements DecisionPolicy {
       opportunityAnswer.probabilities,
       context.opportunities.map((opportunity) => opportunity.id),
       {
-        temperature: 1.42,
-        exploration: 0.24,
+        temperature: 1.18,
+        exploration: 0.1,
         multipliers: opportunityNoveltyMultipliers(context),
       },
     );
@@ -353,8 +362,7 @@ export class JevPolicy implements DecisionPolicy {
         meaning: selected.description,
         qualities: selected.tags.join(", "),
       },
-      task:
-        "Decide how the vehicle should physically perform the already-selected opportunity. Each question measures one independent performance dimension.",
+      task: "Decide how the vehicle should physically perform the already-selected opportunity. Each question measures one independent performance dimension.",
     };
 
     const performanceResponse = await askSystemOne(performanceState, {
@@ -386,7 +394,8 @@ export class JevPolicy implements DecisionPolicy {
         instructions:
           "If the path curves, which direction should the expressive arc favor?",
         criteria: {
-          straight: "No meaningful side preference; keep the path essentially direct.",
+          straight:
+            "No meaningful side preference; keep the path essentially direct.",
           left: "Favor an expressive arc to the vehicle's left.",
           right: "Favor an expressive arc to the vehicle's right.",
         },
@@ -426,8 +435,7 @@ export class JevPolicy implements DecisionPolicy {
     });
 
     const speed = performanceResponse.answers.movement_energy as ScoreAnswer;
-    const curvature = performanceResponse.answers
-      .path_curvature as ScoreAnswer;
+    const curvature = performanceResponse.answers.path_curvature as ScoreAnswer;
     const curveSide = performanceResponse.answers.curve_side as ChoiceAnswer;
     const hesitation = performanceResponse.answers.hesitation as ScoreAnswer;
     const dwell = performanceResponse.answers.dwell as ScoreAnswer;
@@ -445,10 +453,7 @@ export class JevPolicy implements DecisionPolicy {
       { temperature: 1.12, exploration: 0.04 },
     );
 
-    const magnitude = interpolate(
-      sampleScore(curvature),
-      CURVATURE_VALUES,
-    );
+    const magnitude = interpolate(sampleScore(curvature), CURVATURE_VALUES);
 
     const signedCurvature =
       sampledCurveSide === "straight"
@@ -524,13 +529,14 @@ export class JevPolicy implements DecisionPolicy {
       },
     });
 
-    const capabilityAnswer = capabilityResponse.answers.reaction as ChoiceAnswer;
+    const capabilityAnswer = capabilityResponse.answers
+      .reaction as ChoiceAnswer;
     const sampledCapabilityId = sampleDistribution(
       capabilityAnswer.probabilities,
       context.availableCapabilities.map((capability) => capability.id),
       {
-        temperature: 1.28,
-        exploration: 0.16,
+        temperature: 1.15,
+        exploration: 0.08,
         multipliers: capabilityNoveltyMultipliers(context),
       },
     );
@@ -559,8 +565,7 @@ export class JevPolicy implements DecisionPolicy {
           id: selectedCapability.id,
           meaning: selectedCapability.description,
         },
-        task:
-          "Decide how the performer should execute the already-selected reaction. Each question measures one independent performance dimension.",
+        task: "Decide how the performer should execute the already-selected reaction. Each question measures one independent performance dimension.",
       },
       {
         intensity: {
@@ -576,8 +581,7 @@ export class JevPolicy implements DecisionPolicy {
         },
         duration: {
           type: "score",
-          instructions:
-            "How long should the selected reaction remain active?",
+          instructions: "How long should the selected reaction remain active?",
           criteria: [
             "Very brief accent.",
             "Short, readable reaction.",
@@ -606,14 +610,8 @@ export class JevPolicy implements DecisionPolicy {
     return {
       actorId: context.actor.id,
       capabilityId: selectedCapability.id,
-      intensity: interpolate(
-        sampleScore(intensity, 0.32),
-        INTENSITY_VALUES,
-      ),
-      duration: interpolate(
-        sampleScore(duration, 0.28),
-        DURATION_VALUES,
-      ),
+      intensity: interpolate(sampleScore(intensity, 0.32), INTENSITY_VALUES),
+      duration: interpolate(sampleScore(duration, 0.28), DURATION_VALUES),
       delay: interpolate(sampleScore(delay, 0.28), DELAY_VALUES),
       confidence: averageConfidence([
         capabilityAnswer,

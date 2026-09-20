@@ -40,6 +40,128 @@ type Question =
 
 const round = (value: number) => Math.round(value * 100) / 100;
 
+type SamplingOptions = {
+  temperature?: number;
+  exploration?: number;
+  multipliers?: Record<string, number>;
+};
+
+function sampleDistribution(
+  probabilities: Record<string, number>,
+  options: readonly string[],
+  {
+    temperature = 1,
+    exploration = 0,
+    multipliers = {},
+  }: SamplingOptions = {},
+): string {
+  if (options.length === 0) {
+    throw new Error("Cannot sample an empty distribution.");
+  }
+
+  const inverseTemperature = 1 / Math.max(0.05, temperature);
+  const uniform = 1 / options.length;
+
+  const tempered = options.map((option) => {
+    const probability = Math.max(0, probabilities[option] ?? 0);
+    return Math.pow(probability + 1e-9, inverseTemperature);
+  });
+
+  const temperedTotal = tempered.reduce((sum, value) => sum + value, 0);
+
+  const weights = options.map((option, index) => {
+    const semanticWeight =
+      temperedTotal > 0 ? tempered[index] / temperedTotal : uniform;
+
+    // Exploration is generic entropy, not personality logic. It keeps a
+    // calibrated distribution from collapsing into the same argmax forever.
+    const mixed =
+      semanticWeight * (1 - exploration) + uniform * exploration;
+
+    return mixed * Math.max(0, multipliers[option] ?? 1);
+  });
+
+  const total = weights.reduce((sum, value) => sum + value, 0);
+
+  if (total <= 0) {
+    return options[Math.floor(Math.random() * options.length)];
+  }
+
+  let cursor = Math.random() * total;
+
+  for (let index = 0; index < options.length; index += 1) {
+    cursor -= weights[index];
+
+    if (cursor <= 0) {
+      return options[index];
+    }
+  }
+
+  return options[options.length - 1];
+}
+
+function sampleScore(
+  answer: ScoreAnswer,
+  blend = 0.35,
+  temperature = 1.08,
+): number {
+  const keys = Object.keys(answer.probabilities).sort(
+    (a, b) => Number(a) - Number(b),
+  );
+
+  const sampledKey = sampleDistribution(answer.probabilities, keys, {
+    temperature,
+    exploration: 0.04,
+  });
+
+  const sampled = Number(sampledKey);
+
+  if (!Number.isFinite(sampled)) return answer.score;
+
+  // Keep Jev's expected score as the anchor, but let its own probability
+  // distribution create performance variation around that semantic center.
+  return answer.score * (1 - blend) + sampled * blend;
+}
+
+function opportunityNoveltyMultipliers(
+  context: VehiclePolicyContext,
+): Record<string, number> {
+  const recent = context.world.recentEvents.join("|");
+
+  return Object.fromEntries(
+    context.opportunities.map((opportunity) => {
+      let multiplier = 1;
+
+      if (recent.includes(opportunity.id)) {
+        multiplier *= 0.18;
+      }
+
+      if (opportunity.actorId && recent.includes(`:${opportunity.actorId}`)) {
+        multiplier *= 0.48;
+      }
+
+      if (recent.includes(`:${opportunity.action}:`)) {
+        multiplier *= 0.78;
+      }
+
+      return [opportunity.id, multiplier];
+    }),
+  );
+}
+
+function capabilityNoveltyMultipliers(
+  context: ActorPolicyContext,
+): Record<string, number> {
+  const recent = context.world.recentEvents.join("|");
+
+  return Object.fromEntries(
+    context.availableCapabilities.map((capability) => [
+      capability.id,
+      recent.includes(`:${capability.id}:`) ? 0.38 : 1,
+    ]),
+  );
+}
+
 function interpolate(score: number, values: readonly number[]) {
   const clamped = Math.max(0, Math.min(values.length - 1, score));
   const low = Math.floor(clamped);
@@ -195,15 +317,32 @@ export class JevPolicy implements DecisionPolicy {
     const opportunityAnswer = choiceResponse.answers
       .next_opportunity as ChoiceAnswer;
 
+    const sampledOpportunityId = sampleDistribution(
+      opportunityAnswer.probabilities,
+      context.opportunities.map((opportunity) => opportunity.id),
+      {
+        temperature: 1.42,
+        exploration: 0.24,
+        multipliers: opportunityNoveltyMultipliers(context),
+      },
+    );
+
     const selected = context.opportunities.find(
-      (opportunity) => opportunity.id === opportunityAnswer.choice,
+      (opportunity) => opportunity.id === sampledOpportunityId,
     );
 
     if (!selected) {
       throw new Error(
-        `Jev selected unknown vehicle opportunity "${opportunityAnswer.choice}".`,
+        `Could not resolve sampled vehicle opportunity "${sampledOpportunityId}".`,
       );
     }
+
+    console.debug("[Animachina] vehicle distribution", {
+      profile: context.personality.id,
+      argmax: opportunityAnswer.choice,
+      sampled: selected.id,
+      probabilities: opportunityAnswer.probabilities,
+    });
 
     const performanceState = {
       ...compactWorld(context),
@@ -294,24 +433,43 @@ export class JevPolicy implements DecisionPolicy {
     const dwell = performanceResponse.answers.dwell as ScoreAnswer;
     const facing = performanceResponse.answers.facing as ChoiceAnswer;
 
-    const magnitude = interpolate(curvature.score, CURVATURE_VALUES);
+    const sampledCurveSide = sampleDistribution(
+      curveSide.probabilities,
+      ["straight", "left", "right"],
+      { temperature: 1.16, exploration: 0.06 },
+    );
+
+    const sampledFacing = sampleDistribution(
+      facing.probabilities,
+      ["travel", "target", "away"],
+      { temperature: 1.12, exploration: 0.04 },
+    );
+
+    const magnitude = interpolate(
+      sampleScore(curvature),
+      CURVATURE_VALUES,
+    );
+
     const signedCurvature =
-      curveSide.choice === "straight"
+      sampledCurveSide === "straight"
         ? 0
-        : magnitude * (curveSide.choice === "left" ? -1 : 1);
+        : magnitude * (sampledCurveSide === "left" ? -1 : 1);
 
     const facingValue =
-      facing.choice === "target" || facing.choice === "away"
-        ? facing.choice
+      sampledFacing === "target" || sampledFacing === "away"
+        ? sampledFacing
         : "travel";
 
     return {
       opportunityId: selected.id,
       performance: {
-        speed: interpolate(speed.score, SPEED_VALUES),
+        speed: interpolate(sampleScore(speed), SPEED_VALUES),
         curvature: signedCurvature,
-        hesitation: interpolate(hesitation.score, HESITATION_VALUES),
-        dwell: interpolate(dwell.score, DWELL_VALUES),
+        hesitation: interpolate(
+          sampleScore(hesitation, 0.3),
+          HESITATION_VALUES,
+        ),
+        dwell: interpolate(sampleScore(dwell, 0.3), DWELL_VALUES),
         facing: facingValue,
       },
       confidence: averageConfidence([
@@ -367,15 +525,32 @@ export class JevPolicy implements DecisionPolicy {
     });
 
     const capabilityAnswer = capabilityResponse.answers.reaction as ChoiceAnswer;
+    const sampledCapabilityId = sampleDistribution(
+      capabilityAnswer.probabilities,
+      context.availableCapabilities.map((capability) => capability.id),
+      {
+        temperature: 1.28,
+        exploration: 0.16,
+        multipliers: capabilityNoveltyMultipliers(context),
+      },
+    );
+
     const selectedCapability = context.availableCapabilities.find(
-      (capability) => capability.id === capabilityAnswer.choice,
+      (capability) => capability.id === sampledCapabilityId,
     );
 
     if (!selectedCapability) {
       throw new Error(
-        `Jev selected unknown capability "${capabilityAnswer.choice}" for actor "${context.actor.id}".`,
+        `Could not resolve sampled capability "${sampledCapabilityId}" for actor "${context.actor.id}".`,
       );
     }
+
+    console.debug("[Animachina] actor distribution", {
+      actor: context.actor.id,
+      argmax: capabilityAnswer.choice,
+      sampled: selectedCapability.id,
+      probabilities: capabilityAnswer.probabilities,
+    });
 
     const performanceResponse = await askSystemOne(
       {
@@ -431,9 +606,15 @@ export class JevPolicy implements DecisionPolicy {
     return {
       actorId: context.actor.id,
       capabilityId: selectedCapability.id,
-      intensity: interpolate(intensity.score, INTENSITY_VALUES),
-      duration: interpolate(duration.score, DURATION_VALUES),
-      delay: interpolate(delay.score, DELAY_VALUES),
+      intensity: interpolate(
+        sampleScore(intensity, 0.32),
+        INTENSITY_VALUES,
+      ),
+      duration: interpolate(
+        sampleScore(duration, 0.28),
+        DURATION_VALUES,
+      ),
+      delay: interpolate(sampleScore(delay, 0.28), DELAY_VALUES),
       confidence: averageConfidence([
         capabilityAnswer,
         intensity,

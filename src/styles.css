@@ -61,11 +61,18 @@ canvas {
   opacity: 0.48;
 }
 
-.personality-picker {
-  pointer-events: auto;
+.top-controls {
   position: absolute;
   top: 24px;
   right: 28px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.personality-picker {
+  pointer-events: auto;
+  position: static;
   display: flex;
   gap: 8px;
   padding: 7px;
@@ -102,6 +109,34 @@ canvas {
   background: #f5d98a;
 }
 
+.sound-toggle {
+  pointer-events: auto;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  padding: 10px 13px;
+  color: rgba(255, 255, 255, 0.62);
+  background: rgba(14, 14, 27, 0.58);
+  backdrop-filter: blur(12px);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 720;
+  cursor: pointer;
+  transition:
+    color 160ms ease,
+    background 160ms ease,
+    transform 160ms ease;
+}
+
+.sound-toggle:hover {
+  color: white;
+  transform: translateY(-1px);
+}
+
+.sound-toggle.active {
+  color: #1d1831;
+  background: #b7dfc8;
+}
+
 .debug {
   position: absolute;
   left: 28px;
@@ -133,10 +168,18 @@ canvas {
 }
 
 @media (max-width: 720px) {
-  .personality-picker {
+  .top-controls {
     top: auto;
     right: 16px;
     bottom: 16px;
+    flex-direction: column;
+    align-items: flex-end;
+  }
+
+  .personality-picker {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    max-width: calc(100vw - 32px);
   }
 
   .brand {

@@ -1,4 +1,28 @@
-import type { SceneDefinition } from "../engine/model";
+import type {
+  PersonalityProfile,
+  SceneDefinition,
+} from "../engine/model";
+
+export const demoPersonalities: PersonalityProfile[] = [
+  {
+    id: "glamorous",
+    label: "💎 Glamorous",
+    description:
+      "You enjoy being noticed, making an entrance, and turning an encounter into a performance.",
+  },
+  {
+    id: "shy",
+    label: "🫣 Shy",
+    description:
+      "You are cautious around attention, curious from a distance, and prefer gentle encounters.",
+  },
+  {
+    id: "chaotic",
+    label: "😈 Chaotic",
+    description:
+      "You follow impulses, poke at unusual things, and enjoy surprising reactions.",
+  },
+];
 
 export const plazaScene: SceneDefinition = {
   id: "moonlit-plaza",
@@ -16,81 +40,118 @@ export const plazaScene: SceneDefinition = {
       id: "fountain",
       kind: "fountain",
       position: { x: 0, z: 0 },
+      interactionRadius: 1.25,
       tags: ["center-stage", "spectacle", "social", "dramatic"],
+      capabilities: [
+        {
+          id: "pulse",
+          label: "Pulse",
+          description: "Raise and lower the water in a rhythmic acknowledgement.",
+        },
+        {
+          id: "burst",
+          label: "Burst",
+          description: "Answer with a sudden, theatrical burst of water.",
+        },
+        {
+          id: "dim",
+          label: "Dim",
+          description: "Quiet the water and become deliberately understated.",
+        },
+      ],
     },
     {
       id: "statue",
       kind: "statue",
       position: { x: 2.7, z: -2.1 },
-      tags: ["odd", "interactive", "surprising"],
+      interactionRadius: 1.05,
+      tags: ["formal", "watchful", "peculiar", "dramatic"],
+      capabilities: [
+        {
+          id: "turn-toward",
+          label: "Turn toward",
+          description: "Slowly turn to acknowledge the vehicle.",
+        },
+        {
+          id: "turn-away",
+          label: "Turn away",
+          description: "Notice the vehicle, then conspicuously refuse eye contact.",
+        },
+        {
+          id: "pose",
+          label: "Pose",
+          description: "Strike an exaggerated sculptural pose.",
+        },
+      ],
     },
     {
       id: "flowers",
       kind: "flowers",
       position: { x: -1.8, z: 2.35 },
-      tags: ["quiet", "peripheral", "gentle", "low-attention"],
+      interactionRadius: 1.1,
+      tags: ["quiet", "peripheral", "gentle", "living"],
+      capabilities: [
+        {
+          id: "bloom",
+          label: "Bloom",
+          description: "Open toward the arriving vehicle.",
+        },
+        {
+          id: "fold",
+          label: "Fold",
+          description: "Close inward and make themselves small.",
+        },
+        {
+          id: "ripple",
+          label: "Ripple",
+          description: "Pass a wave of motion through the flower bed.",
+        },
+      ],
     },
     {
       id: "creature",
       kind: "creature",
       position: { x: 3.45, z: 2.15 },
-      tags: ["odd", "interactive", "gentle", "surprising"],
+      interactionRadius: 1.0,
+      tags: ["small", "curious", "social", "unpredictable"],
+      capabilities: [
+        {
+          id: "hop",
+          label: "Hop",
+          description: "Hop in place as an excited response.",
+        },
+        {
+          id: "hide",
+          label: "Hide",
+          description: "Duck away from attention for a moment.",
+        },
+        {
+          id: "circle",
+          label: "Circle",
+          description: "Circle around its home position while watching the vehicle.",
+        },
+      ],
     },
   ],
   beats: [
     {
       id: "arrival",
       intent:
-        "Offer several dramatically different ways for the vehicle to enter into relationship with the plaza.",
+        "The plaza notices the visitor. Allow a small relationship to form without prescribing which actor or how.",
+      availableActions: ["approach", "observe", "orbit", "linger"],
+      completion: {
+        minInteractions: 2,
+      },
       nextBeatId: "departure",
-      affordances: [
-        {
-          id: "fountain-center",
-          label: "Take center stage at the fountain",
-          action: "approach",
-          actorId: "fountain",
-          target: { x: -0.65, z: 0.2 },
-          tags: ["center-stage", "spectacle", "social", "dramatic"],
-        },
-        {
-          id: "statue-investigation",
-          label: "Investigate the peculiar statue",
-          action: "observe",
-          actorId: "statue",
-          target: { x: 1.95, z: -1.65 },
-          tags: ["odd", "interactive", "surprising"],
-        },
-        {
-          id: "garden-edge",
-          label: "Slip quietly toward the flowers",
-          action: "linger",
-          actorId: "flowers",
-          target: { x: -2.45, z: 1.8 },
-          tags: ["quiet", "peripheral", "gentle", "low-attention"],
-        },
-        {
-          id: "creature-hello",
-          label: "Approach the small creature",
-          action: "approach",
-          actorId: "creature",
-          target: { x: 2.75, z: 1.7 },
-          tags: ["odd", "interactive", "gentle", "surprising"],
-        },
-      ],
     },
     {
       id: "departure",
       intent:
-        "Resolve the encounter cleanly and carry the guest onward without losing the scene's emotional residue.",
-      affordances: [
-        {
-          id: "plaza-exit",
-          label: "Continue to the next scene",
-          action: "exit",
-          target: { x: 7.2, z: 0 },
-          tags: ["transition"],
-        },
-      ],
+        "Resolve the encounter and carry its emotional residue toward the next scene.",
+      availableActions: ["exit"],
+      completion: {
+        minInteractions: 1,
+      },
     },
   ],
   firstBeatId: "arrival",

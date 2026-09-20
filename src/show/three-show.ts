@@ -43,6 +43,7 @@ function effectEnvelope(
 class WebAudioSoundRig {
   private context?: AudioContext;
   private master?: GainNode;
+  private voices = new Set<AudioScheduledSourceNode>();
 
   get enabled() {
     return Boolean(this.context && this.context.state === "running");
@@ -61,7 +62,20 @@ class WebAudioSoundRig {
     }
   }
 
+  async setEnabled(enabled: boolean) {
+    if (enabled) await this.unlock();
+    else if (this.context?.state === "running") await this.context.suspend();
+  }
+
   reset() {
+    for (const voice of this.voices) {
+      try {
+        voice.stop();
+      } catch {
+        /* already ended */
+      }
+    }
+    this.voices.clear();
     if (!this.context || !this.master) return;
 
     const now = this.context.currentTime;
@@ -105,8 +119,24 @@ class WebAudioSoundRig {
         break;
 
       case "swell":
-        this.tone(196, start, Math.max(0.9, sustain), amount * 0.13, "sine", pan, 247);
-        this.tone(294, start + 0.04, Math.max(0.8, sustain), amount * 0.08, "sine", pan, 392);
+        this.tone(
+          196,
+          start,
+          Math.max(0.9, sustain),
+          amount * 0.13,
+          "sine",
+          pan,
+          247,
+        );
+        this.tone(
+          294,
+          start + 0.04,
+          Math.max(0.8, sustain),
+          amount * 0.08,
+          "sine",
+          pan,
+          392,
+        );
         break;
 
       case "chirp":
@@ -156,6 +186,12 @@ class WebAudioSoundRig {
     oscillator.connect(gain);
     this.connectPanner(gain, pan);
 
+    this.voices.add(oscillator);
+    oscillator.onended = () => {
+      this.voices.delete(oscillator);
+      oscillator.disconnect();
+      gain.disconnect();
+    };
     oscillator.start(start);
     oscillator.stop(start + duration + 0.04);
   }
@@ -200,6 +236,13 @@ class WebAudioSoundRig {
     filter.connect(gain);
     this.connectPanner(gain, pan);
 
+    this.voices.add(source);
+    source.onended = () => {
+      this.voices.delete(source);
+      source.disconnect();
+      filter.disconnect();
+      gain.disconnect();
+    };
     source.start(start);
     source.stop(start + duration + 0.04);
   }
@@ -254,6 +297,10 @@ export class ThreeShowController {
     await this.sound.unlock();
   }
 
+  async setAudioEnabled(enabled: boolean) {
+    await this.sound.setEnabled(enabled);
+  }
+
   trigger(event: StageDecisionEvent) {
     this.active = {
       cue: event,
@@ -303,8 +350,7 @@ export class ThreeShowController {
 
     this.applySetMotion(decision.setMotionCueId, amount, time);
 
-    const finishedAt =
-      decision.anticipation + 0.24 + decision.sustain + 0.7;
+    const finishedAt = decision.anticipation + 0.24 + decision.sustain + 0.7;
 
     if (this.active.elapsed >= finishedAt) {
       this.active = undefined;
@@ -429,8 +475,7 @@ export class ThreeShowController {
       case "wings-sway":
         for (let index = 0; index < this.wings.length; index += 1) {
           const wing = this.wings[index];
-          wing.rotation.y +=
-            Math.sin(time * 3 + index * 0.9) * amount * 0.34;
+          wing.rotation.y += Math.sin(time * 3 + index * 0.9) * amount * 0.34;
         }
         break;
 
@@ -447,7 +492,7 @@ export class ThreeShowController {
 
   private buildScenicMachinery() {
     const ringMaterial = new THREE.MeshStandardMaterial({
-      color: 0x4a4763,
+      color: 0x8a7954,
       roughness: 0.78,
       metalness: 0.08,
     });
@@ -459,11 +504,7 @@ export class ThreeShowController {
         ringMaterial,
       );
 
-      tile.position.set(
-        Math.cos(angle) * 4.62,
-        0.08,
-        Math.sin(angle) * 4.62,
-      );
+      tile.position.set(Math.cos(angle) * 4.62, 0.08, Math.sin(angle) * 4.62);
       tile.rotation.y = -angle;
       tile.castShadow = true;
       this.scenicRing.add(tile);
@@ -472,7 +513,7 @@ export class ThreeShowController {
     this.scenicRoot.add(this.scenicRing);
 
     const wingMaterial = new THREE.MeshStandardMaterial({
-      color: 0x756781,
+      color: 0x335a5b,
       roughness: 0.76,
       metalness: 0.04,
     });

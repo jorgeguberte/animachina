@@ -41,16 +41,17 @@ export class LocalPolicy implements DecisionPolicy {
         curvature: randomBetween(-0.42, 0.42),
         hesitation: randomBetween(0, 0.9),
         dwell: randomBetween(0.55, 1.8),
-        facing: ["travel", "target", "away"][
-          Math.floor(Math.random() * 3)
-        ] as "travel" | "target" | "away",
+        facing: ["travel", "target", "away"][Math.floor(Math.random() * 3)] as
+          "travel" | "target" | "away",
       },
       confidence: 0,
       source: "local",
     };
   }
 
-  async chooseActor(context: ActorPolicyContext): Promise<ActorDecision | null> {
+  async chooseActor(
+    context: ActorPolicyContext,
+  ): Promise<ActorDecision | null> {
     const capability =
       context.availableCapabilities[
         Math.floor(Math.random() * context.availableCapabilities.length)
@@ -70,32 +71,3 @@ export class LocalPolicy implements DecisionPolicy {
   }
 }
 
-/**
- * Jev belongs here.
- *
- * Jev should receive compact semantic context:
- * - creative intent + active beat
- * - personality description
- * - current world state / recent events
- * - the concrete opportunities or capabilities that actually exist
- *
- * It chooses intent and performance parameters. It never invents geometry,
- * drives coordinates frame-by-frame, or bypasses a performer's capabilities.
- */
-export class JevPolicy implements DecisionPolicy {
-  async chooseVehicle(
-    _context: VehiclePolicyContext,
-  ): Promise<VehicleDecision> {
-    throw new Error(
-      "JevPolicy is not wired yet. Pin the real Jev API before implementing this adapter.",
-    );
-  }
-
-  async chooseActor(
-    _context: ActorPolicyContext,
-  ): Promise<ActorDecision | null> {
-    throw new Error(
-      "JevPolicy is not wired yet. Pin the real Jev API before implementing this adapter.",
-    );
-  }
-}

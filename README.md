@@ -177,6 +177,85 @@ In short:
 
 > **Jev judges what makes sense. Animachina performs what is possible.**
 
+## Adaptive show control
+
+v0.4 adds a second policy boundary after performer behavior:
+
+```text
+vehicle decision
+      ↓
+vehicle performs
+      ↓
+actor decision
+      ↓
+actor performs
+      ↓
+StageDirector  ← Jev
+   ╱   │   ╲
+light sound set motion
+      ↓
+show cues feed back into recentEvents
+```
+
+The StageDirector does not invent a new plot event. It receives the actor moment that already exists and answers a narrower Imagineering-style question:
+
+> How should the attraction support this moment?
+
+### LightRig
+
+The Moonlit Plaza currently declares:
+
+- `focus-actor`
+- `follow-vehicle`
+- `dim-world`
+- `warm-world`
+- `cool-world`
+- `pulse-world`
+- `hold-light`
+
+These are physical show-control capabilities. Jev selects among them and judges the overall stage energy, anticipation and sustain.
+
+### SoundRig
+
+The prototype uses WebAudio so the show-control architecture can be tested without audio assets:
+
+- `chime`
+- `shimmer`
+- `low-hit`
+- `rustle`
+- `swell`
+- `chirp`
+- `silence`
+
+Sound requires a browser user gesture. Use the **Sound** button in the demo to unlock WebAudio.
+
+Production audio can later replace these procedural cues with authored stems, spatial samples and music systems without changing the StageDirector contract.
+
+### Scenic motion
+
+The plaza now has simple scenic machinery around its perimeter. The authored capability vocabulary is:
+
+- `ring-turn`
+- `counter-turn`
+- `wings-open`
+- `wings-sway`
+- `plaza-breathe`
+- `hold-set`
+
+Again, no personality maps to any cue. The machinery only knows what it can physically perform.
+
+### Temporal envelope
+
+Each Jev stage decision also judges:
+
+- overall energy,
+- anticipation before the cue,
+- sustain time.
+
+Animachina turns that into a shared attack / sustain / release envelope, so light and scenic motion feel like one coordinated show response instead of unrelated effects.
+
+The selected light, sound and scenic-motion cues are written back into `recentEvents`. Later vehicle and actor judgments therefore know what the attraction itself just did.
+
 ## Why top-down first?
 
 The runtime is renderer-independent. The prototype uses X/Z scene space with an orthographic camera, so the later 3D move is mostly a stagecraft swap:
@@ -196,10 +275,10 @@ npm run dev
 
 ## Status
 
-v0.3: capability-driven runtime + Jev System One policy + probabilistic direction from Jev distributions + novelty pressure + server-side API proxy + personality-blind fallback.
+v0.4: capability-driven runtime + probabilistic Jev performer policy + Jev StageDirector + adaptive light, procedural sound and scenic machinery + server-side API proxy + personality-blind fallbacks.
 
 The experiment now has a falsifiable test:
 
 > Run the same authored scene with different semantic personality descriptions. Distinct behavior should emerge from Jev decisions, **without adding personality-specific engine rules**.
 
-Next: observe several runs, inspect Jev probabilities/confidence, and tune the semantic state/questions only where behavior is unclear.
+Next: observe whether the **same behavioral moment** receives meaningfully different but coherent stage treatment across personalities and runs, then replace prototype show assets with richer authored rigs only after the direction layer proves itself.

@@ -113,6 +113,10 @@ export class SceneRuntime {
     this.hooks.onBeatChanged?.(this.currentBeat());
   }
 
+  noteEvent(event: string) {
+    this.pushEvent(event);
+  }
+
   step(dt: number) {
     if (this.world.completed) return;
 
